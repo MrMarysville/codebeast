@@ -1,0 +1,261 @@
+// Enhanced application startup script with diagnostics
+const { spawn, execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const readline = require('readline');
+
+// Create readline interface for user input
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+// Configuration
+const BACKEND_PORT = process.env.BACKEND_PORT || 5001;
+const FRONTEND_PORT = process.env.FRONTEND_PORT || 3000;
+
+// Keep track of running processes
+let processes = [];
+
+console.log('\n🚀 Starting Zaks Code Beast...\n');
+
+// Check for required directories
+ensureDirectoryExists(path.join(__dirname, 'backend', 'uploads'));
+
+// Run pre-flight checks
+runPreflightChecks()
+  .then(() => {
+    startApp();
+  })
+  .catch(error => {
+    console.error('\n❌ Pre-flight checks failed:', error.message);
+    console.log('Please fix the issues and try again.');
+    process.exit(1);
+  });
+
+function ensureDirectoryExists(dir) {
+  if (!fs.existsSync(dir)) {
+    console.log(`Creating directory: ${dir}`);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`✅ Directory created: ${dir}`);
+    } catch (error) {
+      console.error(`❌ Failed to create directory ${dir}:`, error.message);
+      console.log(`Please create it manually.`);
+    }
+  }
+}
+
+async function runPreflightChecks() {
+  // Check if .env files exist
+  const backendEnvPath = path.join(__dirname, 'backend', '.env');
+  const frontendEnvPath = path.join(__dirname, 'frontend', '.env');
+  
+  if (!fs.existsSync(backendEnvPath)) {
+    throw new Error(`Backend .env file not found at ${backendEnvPath}. Please run 'node setup.js' first.`);
+  }
+  
+  if (!fs.existsSync(frontendEnvPath)) {
+    throw new Error(`Frontend .env file not found at ${frontendEnvPath}. Please run 'node setup.js' first.`);
+  }
+  
+  // Check for running instances on the same port
+  const backendPort = await getBackendPort(backendEnvPath);
+  console.log(`Checking if port ${backendPort} is available...`);
+  
+  try {
+    await checkPort(backendPort);
+    console.log(`✅ Port ${backendPort} is available`);
+  } catch (error) {
+    throw new Error(`Port ${backendPort} is already in use. Another instance might be running.`);
+  }
+  
+  console.log('✅ All pre-flight checks passed');
+  return true;
+}
+
+function getBackendPort(envFile) {
+  return new Promise((resolve) => {
+    try {
+      const envContent = fs.readFileSync(envFile, 'utf8');
+      const portMatch = envContent.match(/PORT\s*=\s*(\d+)/);
+      const port = portMatch ? parseInt(portMatch[1]) : 5001;
+      resolve(port);
+    } catch (error) {
+      console.warn(`⚠️  Could not read PORT from .env file:`, error.message);
+      resolve(5001); // Default port
+    }
+  });
+}
+
+function checkPort(port) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer();
+    
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error('Port is already in use'));
+      } else {
+        reject(err);
+      }
+      server.close();
+    });
+    
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    
+    server.listen(port);
+  });
+}
+
+/**
+ * Starts the application
+ */
+async function startApp() {
+  try {
+    // Check for environment files
+    checkEnvironmentFiles();
+    
+    // Check for required directories
+    ensureDirectories();
+    
+    // Start backend and frontend
+    await startBackend();
+    await startFrontend();
+    
+    console.log('\n🚀 Application is running!');
+    console.log(`- Backend: http://localhost:${BACKEND_PORT}`);
+    console.log(`- Frontend: http://localhost:${FRONTEND_PORT}`);
+    
+    console.log('\nPress Ctrl+C to stop the application\n');
+  } catch (error) {
+    console.error(`❌ Failed to start application: ${error.message}`);
+    cleanupAndExit(1);
+  }
+}
+
+/**
+ * Check for required directories
+ */
+function ensureDirectories() {
+  // Create uploads directory if it doesn't exist
+  const uploadsDir = path.join(__dirname, 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    console.log('Creating uploads directory...');
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+}
+
+/**
+ * Checks for environment files and creates them if they don't exist
+ */
+function checkEnvironmentFiles() {
+  // Check backend .env file
+  const backendEnvPath = path.join(__dirname, 'backend', '.env');
+  if (!fs.existsSync(backendEnvPath)) {
+    console.log('Creating backend .env file...');
+    const backendEnvContent = `PORT=${BACKEND_PORT}
+JWT_SECRET=zaks-code-beast-secret-key-${Math.random().toString(36).substring(2, 15)}
+UPLOADS_DIR=../uploads
+NODE_ENV=development
+FRONTEND_URL=http://localhost:${FRONTEND_PORT}`;
+    fs.writeFileSync(backendEnvPath, backendEnvContent);
+  }
+  
+  // Check frontend .env file
+  const frontendEnvPath = path.join(__dirname, 'frontend', '.env');
+  if (!fs.existsSync(frontendEnvPath)) {
+    console.log('Creating frontend .env file...');
+    const frontendEnvContent = `REACT_APP_API_URL=http://localhost:${BACKEND_PORT}/api
+REACT_APP_BACKEND_URL=http://localhost:${BACKEND_PORT}`;
+    fs.writeFileSync(frontendEnvPath, frontendEnvContent);
+  }
+}
+
+/**
+ * Starts the backend server
+ */
+async function startBackend() {
+  console.log('Starting backend server...');
+  
+  // Start the backend server directly using node
+  const backendPath = path.join(__dirname, 'backend', 'server.js');
+  console.log(`Starting backend from: ${backendPath}`);
+  
+  const backend = spawn('node', [backendPath], { stdio: 'pipe' });
+  processes.push(backend);
+  
+  backend.stdout.on('data', (data) => {
+    process.stdout.write(`[backend] ${data}`);
+  });
+  
+  backend.stderr.on('data', (data) => {
+    process.stderr.write(`[backend] ${data}`);
+  });
+
+  // Return a promise that resolves when the backend server is ready
+  return new Promise((resolve) => {
+    backend.stdout.on('data', (data) => {
+      if (data.toString().includes('Server running on port')) {
+        resolve();
+      }
+    });
+    
+    // If the backend doesn't start in 10 seconds, resolve anyway
+    setTimeout(resolve, 10000);
+  });
+}
+
+/**
+ * Starts the frontend development server
+ */
+async function startFrontend() {
+  console.log('Starting frontend development server...');
+  
+  // We can use npm directly for the frontend since it might have specific scripts
+  // that are easier to run through npm
+  const frontend = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['start'], { 
+    stdio: 'inherit',
+    cwd: path.join(__dirname, 'frontend')
+  });
+  processes.push(frontend);
+}
+
+/**
+ * Cleanup function for graceful shutdown
+ */
+function cleanupAndExit(code = 0) {
+  console.log('\n🛑 Shutting down application...');
+  
+  // Kill all running processes
+  processes.forEach(p => {
+    if (!p.killed) {
+      p.kill();
+    }
+  });
+  
+  // Close readline interface
+  rl.close();
+  
+  console.log('👋 Goodbye!');
+  process.exit(code);
+}
+
+// Handle Ctrl+C and other termination signals
+process.on('SIGINT', cleanupAndExit);
+process.on('SIGTERM', cleanupAndExit);
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  cleanupAndExit(1);
+});
+
+// Start the application
+startApp();
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});

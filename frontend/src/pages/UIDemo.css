@@ -1,0 +1,129 @@
+/* UIDemo.css */
+.ui-demo-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+.ui-demo-intro {
+  margin-bottom: 2rem;
+  font-size: 1.1rem;
+  color: #555;
+  max-width: 800px;
+  line-height: 1.5;
+}
+
+.demo-section {
+  margin-bottom: 3rem;
+  padding: 2rem;
+  border-radius: 8px;
+  background-color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.demo-section h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.75rem;
+  color: #333;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 0.5rem;
+}
+
+.demo-section > p {
+  color: #666;
+  margin-bottom: 2rem;
+}
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.demo-item {
+  background-color: #f9f9f9;
+  padding: 1.5rem;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.demo-item.fullwidth {
+  grid-column: 1 / -1;
+}
+
+.demo-item h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+  color: #444;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.demo-footer {
+  margin-top: 2rem;
+  border-top: 1px solid #eee;
+  padding-top: 1rem;
+  font-size: 0.9rem;
+  color: #777;
+  display: flex;
+  align-items: center;
+}
+
+.demo-footer svg {
+  margin-right: 0.5rem;
+  color: #3498db;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #1a1a1a;
+    color: #f0f0f0;
+  }
+  
+  .ui-demo-container {
+    color: #f0f0f0;
+  }
+  
+  .ui-demo-intro {
+    color: #bbb;
+  }
+  
+  .demo-section {
+    background-color: #262626;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  
+  .demo-section h2 {
+    color: #f0f0f0;
+    border-bottom-color: #444;
+  }
+  
+  .demo-section > p {
+    color: #bbb;
+  }
+  
+  .demo-item {
+    background-color: #333;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+  
+  .demo-item h3 {
+    color: #ddd;
+  }
+  
+  .demo-footer {
+    border-top-color: #444;
+    color: #aaa;
+  }
+} 

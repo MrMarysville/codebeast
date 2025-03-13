@@ -1,0 +1,164 @@
+/* ErrorState.css */
+.error-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.error-content {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.error-icon-container {
+  flex-shrink: 0;
+  margin-right: 1rem;
+}
+
+.error-icon {
+  width: 24px;
+  height: 24px;
+  color: #e74c3c;
+}
+
+.error-message-container {
+  flex: 1;
+}
+
+.error-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.error-message {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: #666;
+  word-wrap: break-word;
+}
+
+.retry-button {
+  padding: 8px 16px;
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.retry-button:hover {
+  background-color: #c0392b;
+}
+
+/* Variants */
+.error-inline {
+  padding: 8px;
+  min-height: auto;
+}
+
+.error-card {
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 8px;
+  background-color: rgba(231, 76, 60, 0.05);
+  padding: 16px;
+  margin: 1rem 0;
+}
+
+.error-page {
+  min-height: 200px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.error-page .error-content {
+  flex-direction: column;
+}
+
+.error-page .error-icon-container {
+  margin-right: 0;
+  margin-bottom: 1rem;
+}
+
+.error-page .error-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.error-toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  max-width: 350px;
+  background-color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-left: 4px solid #e74c3c;
+  padding: 1rem;
+  border-radius: 4px;
+  z-index: 1000;
+  animation: slideIn 0.3s ease forwards;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Size variants */
+.size-small .error-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.size-small .error-title {
+  font-size: 0.9rem;
+}
+
+.size-small .error-message {
+  font-size: 0.8rem;
+}
+
+.size-large .error-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.size-large .error-title {
+  font-size: 1.3rem;
+}
+
+.size-large .error-message {
+  font-size: 1rem;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .error-title {
+    color: #f8f8f8;
+  }
+  
+  .error-message {
+    color: #bbb;
+  }
+  
+  .error-card {
+    border-color: rgba(231, 76, 60, 0.4);
+    background-color: rgba(231, 76, 60, 0.1);
+  }
+  
+  .error-toast {
+    background-color: #333;
+    color: #f8f8f8;
+  }
+} 

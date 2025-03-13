@@ -1,0 +1,189 @@
+.checkbox-container {
+  display: inline-flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+  font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: flex-start;
+  position: relative;
+}
+
+.checkbox-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  z-index: -1;
+}
+
+.checkbox-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--checkbox-border-color, #adb5bd);
+  border-radius: 3px;
+  margin-right: 8px;
+  background-color: var(--checkbox-bg-color, #fff);
+  transition: all 0.2s ease-in-out;
+  flex-shrink: 0;
+}
+
+.checkbox-icon {
+  color: var(--checkbox-icon-color, #fff);
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+/* Checked state */
+.checkbox-input:checked + .checkbox-control {
+  background-color: var(--checkbox-checked-bg-color, #0d6efd);
+  border-color: var(--checkbox-checked-border-color, #0d6efd);
+}
+
+.checkbox-input:checked + .checkbox-control .checkbox-icon {
+  opacity: 1;
+}
+
+/* Focus state */
+.checkbox-input:focus + .checkbox-control {
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+  outline: none;
+}
+
+/* Hover state */
+.checkbox-wrapper:hover .checkbox-control {
+  border-color: var(--checkbox-hover-border-color, #495057);
+}
+
+/* Disabled state */
+.checkbox-container.disabled .checkbox-control {
+  background-color: var(--checkbox-disabled-bg-color, #e9ecef);
+  border-color: var(--checkbox-disabled-border-color, #ced4da);
+  cursor: not-allowed;
+}
+
+.checkbox-container.disabled .checkbox-label {
+  color: var(--checkbox-disabled-color, #6c757d);
+  cursor: not-allowed;
+}
+
+/* Error state */
+.checkbox-container.has-error .checkbox-control {
+  border-color: var(--checkbox-error-border-color, #dc3545);
+}
+
+.checkbox-container.has-error .checkbox-input:focus + .checkbox-control {
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.25);
+}
+
+/* Size variations */
+.checkbox-container.size-small .checkbox-control {
+  width: 14px;
+  height: 14px;
+}
+
+.checkbox-container.size-small .checkbox-icon {
+  width: 10px;
+  height: 10px;
+}
+
+.checkbox-container.size-small .checkbox-label {
+  font-size: 0.875rem;
+}
+
+.checkbox-container.size-large .checkbox-control {
+  width: 22px;
+  height: 22px;
+}
+
+.checkbox-container.size-large .checkbox-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.checkbox-container.size-large .checkbox-label {
+  font-size: 1.125rem;
+}
+
+/* Label styles */
+.checkbox-label {
+  color: var(--checkbox-label-color, #212529);
+  font-size: 1rem;
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+  padding-top: 1px;
+}
+
+.required-indicator {
+  color: var(--required-color, #dc3545);
+}
+
+/* Helper text */
+.checkbox-helper-text {
+  margin-top: 4px;
+  font-size: 0.875rem;
+  color: var(--helper-text-color, #6c757d);
+  margin-left: 26px;
+}
+
+.checkbox-helper-text.error {
+  color: var(--error-color, #dc3545);
+}
+
+/* Indeterminate state */
+.checkbox-input:indeterminate + .checkbox-control {
+  background-color: var(--checkbox-indeterminate-bg-color, #0d6efd);
+  border-color: var(--checkbox-indeterminate-border-color, #0d6efd);
+}
+
+.checkbox-input:indeterminate + .checkbox-control .checkbox-icon {
+  opacity: 1;
+}
+
+/* Space for checkbox groups */
+.checkbox-container + .checkbox-container {
+  margin-top: 0.5rem;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .checkbox-control {
+    --checkbox-border-color: #6c757d;
+    --checkbox-bg-color: #343a40;
+  }
+  
+  .checkbox-input:checked + .checkbox-control {
+    --checkbox-checked-bg-color: #0d6efd;
+    --checkbox-checked-border-color: #0d6efd;
+  }
+  
+  .checkbox-label {
+    --checkbox-label-color: #e9ecef;
+  }
+  
+  .checkbox-wrapper:hover .checkbox-control {
+    --checkbox-hover-border-color: #adb5bd;
+  }
+  
+  .checkbox-container.disabled .checkbox-control {
+    --checkbox-disabled-bg-color: #212529;
+    --checkbox-disabled-border-color: #495057;
+  }
+  
+  .checkbox-container.disabled .checkbox-label {
+    --checkbox-disabled-color: #6c757d;
+  }
+  
+  .checkbox-helper-text {
+    --helper-text-color: #adb5bd;
+  }
+} 

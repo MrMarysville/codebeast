@@ -1,0 +1,249 @@
+/* TextInput.css */
+.text-input-container {
+  margin-bottom: 1rem;
+  width: 100%;
+  font-family: inherit;
+}
+
+.text-input-container.full-width {
+  width: 100%;
+}
+
+/* Label styling */
+.text-input-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.required-indicator {
+  margin-left: 4px;
+  color: #e74c3c;
+}
+
+/* Input wrapper styling */
+.text-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #fff;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.text-input-wrapper.focused {
+  border-color: #2196f3;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.2);
+}
+
+.text-input-wrapper.error {
+  border-color: #e74c3c;
+}
+
+.text-input-wrapper.error.focused {
+  box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2);
+}
+
+.text-input-wrapper.success {
+  border-color: #2ecc71;
+}
+
+.text-input-wrapper.success.focused {
+  box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.2);
+}
+
+.text-input-wrapper.disabled {
+  background-color: #f5f5f5;
+  border-color: #e0e0e0;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.text-input-wrapper.readonly {
+  background-color: #fafafa;
+  border-color: #e0e0e0;
+}
+
+/* Base input styling */
+.text-input {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  outline: none;
+  background-color: transparent;
+  font-size: 0.95rem;
+  color: #333;
+  font-family: inherit;
+}
+
+.text-input::placeholder {
+  color: #aaa;
+}
+
+.text-input:disabled,
+.text-input:read-only {
+  cursor: not-allowed;
+}
+
+/* Prefix and suffix areas */
+.text-input-prefix,
+.text-input-suffix {
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  color: #777;
+  font-size: 0.9rem;
+}
+
+.text-input-prefix {
+  border-right: 1px solid #eee;
+}
+
+.text-input-wrapper.has-prefix .text-input {
+  padding-left: 0;
+}
+
+.text-input-wrapper.has-suffix .text-input {
+  padding-right: 0;
+}
+
+/* Helper text styles */
+.text-input-helper-text {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.text-input-helper-text.error {
+  color: #e74c3c;
+}
+
+.text-input-helper-text.success {
+  color: #2ecc71;
+}
+
+/* Icon styling */
+.text-input-icon {
+  display: flex;
+  margin: 0 0.25rem;
+  color: #777;
+}
+
+.text-input-icon.error-icon {
+  color: #e74c3c;
+}
+
+.text-input-icon.success-icon {
+  color: #2ecc71;
+}
+
+/* Button elements inside input */
+.text-input-clear-button,
+.text-input-password-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0.3rem;
+  margin: 0 0.25rem;
+  cursor: pointer;
+  color: #777;
+  border-radius: 50%;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.text-input-clear-button:hover,
+.text-input-password-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #333;
+}
+
+.text-input-clear-button:focus,
+.text-input-password-toggle:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.3);
+}
+
+/* Size variants */
+.text-input-container.size-small .text-input-wrapper {
+  min-height: 32px;
+}
+
+.text-input-container.size-small .text-input {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.text-input-container.size-small .text-input-label {
+  font-size: 0.8rem;
+}
+
+.text-input-container.size-medium .text-input-wrapper {
+  min-height: 40px;
+}
+
+.text-input-container.size-large .text-input-wrapper {
+  min-height: 48px;
+}
+
+.text-input-container.size-large .text-input {
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+}
+
+.text-input-container.size-large .text-input-label {
+  font-size: 1rem;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .text-input-label {
+    color: #e0e0e0;
+  }
+  
+  .text-input-wrapper {
+    border-color: #444;
+    background-color: #2a2a2a;
+  }
+  
+  .text-input {
+    color: #f0f0f0;
+  }
+  
+  .text-input::placeholder {
+    color: #777;
+  }
+  
+  .text-input-wrapper.focused {
+    border-color: #64b5f6;
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.3);
+  }
+  
+  .text-input-wrapper.disabled,
+  .text-input-wrapper.readonly {
+    background-color: #333;
+    border-color: #444;
+  }
+  
+  .text-input-prefix {
+    border-right-color: #444;
+  }
+  
+  .text-input-helper-text {
+    color: #aaa;
+  }
+  
+  .text-input-clear-button:hover,
+  .text-input-password-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ddd;
+  }
+} 
