@@ -6,35 +6,79 @@
  * since the actual Python functionality has been replaced with JavaScript mocks.
  */
 
-// Always return true for Python availability - no actual Python needed
-let pythonAvailable = true;
-let pythonCommand = 'mock-python';
+const { exec } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+// Variable to store Python availability status
+let isPythonAvailable = false;
 
 /**
- * Mock Python check function
- * Always reports Python as available
- * @returns {Promise<boolean>} - Always returns true
+ * Check if Python is available on the system
+ * 
+ * @returns {Promise<boolean>} Whether Python is available
  */
 const checkPython = async () => {
-    console.log('Mock Python checker called (Python not required)');
-    console.log('Python is being mocked with JavaScript implementations');
-    return true;
+  // Determine the Python command based on the operating system
+  // On Windows, try 'py' first, then fall back to 'python'
+  // On other systems, use 'python' by default
+  const isWindows = os.platform() === 'win32';
+  const pythonCommand = process.env.PYTHON_PATH || (isWindows ? 'py' : 'python');
+  
+  return new Promise((resolve) => {
+    try {
+      // Try to execute Python with version flag
+      exec(`${pythonCommand} --version`, (error, stdout, stderr) => {
+        if (error) {
+          // If 'py' fails on Windows, try 'python' as a fallback
+          if (isWindows && pythonCommand === 'py') {
+            console.log('Py command failed, trying python command as fallback...');
+            exec('python --version', (pyError, pyStdout, pyStderr) => {
+              if (pyError) {
+                console.warn(`Python check failed: ${error.message}`);
+                isPythonAvailable = false;
+                return resolve(false);
+              }
+              
+              // Python is available via 'python' command
+              const versionOutput = pyStdout || pyStderr;
+              console.log(`Python detected: ${versionOutput.trim()}`);
+              isPythonAvailable = true;
+              resolve(true);
+            });
+            return;
+          }
+          
+          console.warn(`Python check failed: ${error.message}`);
+          isPythonAvailable = false;
+          return resolve(false);
+        }
+        
+        // Python is available
+        const versionOutput = stdout || stderr;
+        console.log(`Python detected: ${versionOutput.trim()}`);
+        isPythonAvailable = true;
+        resolve(true);
+      });
+    } catch (error) {
+      console.warn(`Python check exception: ${error.message}`);
+      isPythonAvailable = false;
+      resolve(false);
+    }
+  });
 };
 
 /**
- * Always reports Python as available
- * @returns {boolean} - Always returns true
+ * Get current Python availability status
+ * 
+ * @returns {boolean} Whether Python is available
  */
-const isPythonAvailable = () => true;
-
-/**
- * Returns a mock Python command
- * @returns {string} - Returns a mock Python command
- */
-const getPythonCommand = () => 'mock-python';
+const getPythonStatus = () => {
+  return isPythonAvailable;
+};
 
 module.exports = {
-    checkPython,
-    isPythonAvailable,
-    getPythonCommand
+  checkPython,
+  isPythonAvailable: getPythonStatus
 };

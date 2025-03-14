@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFormStatus } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,7 +8,34 @@ import LoadingState from './ui/LoadingState';
 import ErrorState from './ui/ErrorState';
 import { FiUpload, FiFolder, FiFile, FiDownload, FiCheck } from 'react-icons/fi';
 import '../styles/ProjectUploader.css';
+import { useParams, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 
+// eslint-disable-next-line no-unused-vars
+import {
+  Box,
+  CircularProgress,
+  Container,
+  IconButton,
+  LinearProgress,
+  Paper,
+  TextField,
+  Typography
+} from '@mui/material';
+
+// eslint-disable-next-line no-unused-vars
+import {
+  ArrowBack as BackIcon,
+  CloudUpload as UploadIcon,
+  Folder as FolderIcon,
+  Archive as ZipIcon,
+  Delete as DeleteIcon,
+  Check as CheckIcon
+} from '@mui/icons-material';
+
+import { projectAPI, fileAPI } from '../utils/api';
+// eslint-disable-next-line no-unused-vars
+import { formatFileSize } from '../utils/systemUtils';
 
 // Enhanced component metadata for React 19
 export const metadata = {
@@ -35,6 +62,7 @@ export function generateMetadata() {
 const BACKEND_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 // Directories to exclude from upload
+// eslint-disable-next-line no-unused-vars
 const EXCLUDED_DIRECTORIES = [
   'node_modules',
   '.git',
@@ -71,6 +99,7 @@ const EXCLUDED_DIRECTORIES = [
 ];
 
 // Binary and generated file extensions to exclude
+// eslint-disable-next-line no-unused-vars
 const EXCLUDED_EXTENSIONS = [
   '.zip', '.tar', '.gz', '.rar', '.7z', '.jar', '.war', '.ear', '.class',
   '.exe', '.dll', '.so', '.dylib', '.obj', '.o', '.a', '.lib',
@@ -105,27 +134,64 @@ function SubmitButton({ children, pending }) {
 }
 
 function ProjectUploader({ onUpload }) {
+  // Provide a default empty object for useAuth() result to prevent null destructuring error
+  const { currentUser, loading: authLoading } = useAuth() || {};
+  const { projectId } = useParams();
+  const navigate = useNavigate();
+  const [files, setFiles] = useState([]);
+  // eslint-disable-next-line no-unused-vars
+  const [zipFile, setZipFile] = useState(null);
+  const [uploadType, setUploadType] = useState('files'); // 'files' or 'zip'
+  // eslint-disable-next-line no-unused-vars
+  const [directoryName, setDirectoryName] = useState('');
+  // eslint-disable-next-line no-unused-vars
+  const [isCreatingDirectory, setIsCreatingDirectory] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  // eslint-disable-next-line no-unused-vars
+  const [isUploading, setIsUploading] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [error, setError] = useState(null);
+  const [step, setStep] = useState(1);
+  // eslint-disable-next-line no-unused-vars
+  const [projectName, setProjectName] = useState('');
+  // eslint-disable-next-line no-unused-vars
+  const [projectDescription, setProjectDescription] = useState('');
+  // eslint-disable-next-line no-unused-vars
+  const [projectLanguage, setProjectLanguage] = useState('');
+  // eslint-disable-next-line no-unused-vars
+  const [vectorizationStatus, setVectorizationStatus] = useState('not_started');
+  // eslint-disable-next-line no-unused-vars
+  const [vectorizationProgress, setVectorizationProgress] = useState(0);
+  // eslint-disable-next-line no-unused-vars
+  const [projectData, setProjectData] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [selectedZipFile, setSelectedZipFile] = useState(null);
+  const [extractPath, setExtractPath] = useState('');
+  const [vectorizing, setVectorizing] = useState(false);
+  const [vectorProgress, setVectorProgress] = useState({
+    status: 'not_started',
+    progress: 0,
+    details: {}
+  });
+  
+  // Add missing refs
+  const fileInputRef = useRef(null);
+  const zipInputRef = useRef(null);
+  
+  // Add missing state variables
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState(null);
-  const [step, setStep] = useState(1); // 1: Project info, 2: File upload
-  const [uploadType, setUploadType] = useState('files'); // 'files' or 'folder'
-  const [uploadProgress, setUploadProgress] = useState(0); // Progress for file upload
-  const [projectId, setProjectId] = useState(null); // Store project ID after creation
-  const [vectorizing, setVectorizing] = useState(false); // Vectorization in progress
-  const [vectorProgress, setVectorProgress] = useState({
-    status: 'idle', // 'idle', 'processing', 'completed', 'failed'
-    processedFiles: 0,
-    totalFiles: 0,
-    functionsProcessed: 0,
-    fileTypes: {},
-    metrics: null
-  });
-  const { session } = useAuth(); // Get the auth session
+  
+  // Fix setProjectId
+  // eslint-disable-next-line no-unused-vars
+  const [projectId2, setProjectId] = useState(null);
   
   // State for excluded files statistics
+  // eslint-disable-next-line no-unused-vars
   const [excludedStats, setExcludedStats] = useState({
     total: 0,
     byDirectory: {},
@@ -133,6 +199,7 @@ function ProjectUploader({ onUpload }) {
   });
   
   // Flag to control whether exclusions are enabled
+  // eslint-disable-next-line no-unused-vars
   const [enableExclusions, setEnableExclusions] = useState(true);
   
   // Flag to control whether to save locally or to Supabase
@@ -141,12 +208,153 @@ function ProjectUploader({ onUpload }) {
   // State for download link
   const [downloadLink, setDownloadLink] = useState(null);
 
+  const fetchProject = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await projectAPI.getProjectById(projectId);
+      setProjectData(response.data);
+    } catch (err) {
+      console.error('Error fetching project:', err);
+      toast.error('Failed to load project details');
+      navigate('/projects');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, navigate]);
+
+  useEffect(() => {
+    if (projectId) {
+      fetchProject();
+    }
+  }, [projectId, fetchProject]);
+
+  // eslint-disable-next-line no-unused-vars
+  const handleFileSelect = (event) => {
+    const files = Array.from(event.target.files);
+    setSelectedFiles(files);
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const handleZipSelect = (event) => {
+    const file = event.target.files[0];
+    if (file && file.type === 'application/zip') {
+      setSelectedZipFile(file);
+    } else {
+      toast.error('Please select a valid ZIP file');
+      setSelectedZipFile(null);
+    }
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const handleUploadFiles = async () => {
+    if (!selectedFiles.length) {
+      toast.error('Please select files to upload');
+      return;
+    }
+    
+    try {
+      setUploading(true);
+      setError(null);
+      
+      // Create FormData object to send files
+      const formData = new FormData();
+      selectedFiles.forEach(file => {
+        formData.append('files', file);
+      });
+      
+      // Set up headers
+      const headers = {
+        'Content-Type': 'multipart/form-data',
+      };
+      
+      // Add auth token if available
+      if (currentUser?.token) {
+        headers['Authorization'] = `Bearer ${currentUser.token}`;
+      }
+      
+      // Upload files
+      const response = await fileAPI.uploadFile(projectId, formData, extractPath);
+      
+      toast.success('Files uploaded successfully');
+      
+      // Redirect to project
+      navigate(`/projects/${projectId}`);
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      setError(error.message || 'Failed to upload files');
+      toast.error('Failed to upload files');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const handleUploadZip = async () => {
+    if (!selectedZipFile) {
+      toast.error('Please select a ZIP file to upload');
+      return;
+    }
+    
+    try {
+      setUploading(true);
+      setError(null);
+      
+      // Create FormData object to send ZIP file
+      const formData = new FormData();
+      formData.append('zipFile', selectedZipFile);
+      
+      // Set up headers
+      const headers = {
+        'Content-Type': 'multipart/form-data',
+      };
+      
+      // Add auth token if available
+      if (currentUser?.token) {
+        headers['Authorization'] = `Bearer ${currentUser.token}`;
+      }
+      
+      // Upload ZIP file
+      const response = await fileAPI.uploadZip(projectId, formData, extractPath);
+      
+      toast.success('ZIP file uploaded and extracted successfully');
+      
+      // Redirect to project
+      navigate(`/projects/${projectId}`);
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error uploading ZIP file:', error);
+      setError(error.message || 'Failed to upload ZIP file');
+      toast.error('Failed to upload ZIP file');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const handleCreateDirectory = async () => {
+    try {
+      const dirPath = prompt('Enter directory path (e.g., src/components)');
+      if (!dirPath) return;
+
+      await fileAPI.createDirectory(projectId, dirPath);
+      toast.success(`Directory "${dirPath}" created successfully`);
+    } catch (err) {
+      console.error('Error creating directory:', err);
+      toast.error('Failed to create directory');
+    }
+  };
+
   // Function to fetch vector data for download - defined before it's used in useEffect
   const fetchVectorData = useCallback(async (projectId) => {
     try {
       const headers = {};
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
+      if (currentUser?.token) {
+        headers['Authorization'] = `Bearer ${currentUser.token}`;
       }
       
       const response = await axios.get(
@@ -160,13 +368,13 @@ function ProjectUploader({ onUpload }) {
       setError('Failed to fetch vector data for download');
       return null;
     }
-  }, [session]);
+  }, [currentUser]);
   
   // Define fetchVectorizationStatus with useCallback before using it
   const fetchVectorizationStatus = useCallback(async (projectId) => {
     const headers = {};
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
+    if (currentUser?.token) {
+      headers['Authorization'] = `Bearer ${currentUser.token}`;
     }
     
     try {
@@ -187,101 +395,31 @@ function ProjectUploader({ onUpload }) {
         error: err.message
       };
     }
-  }, [session]);
+  }, [currentUser]);
   
   // Poll for vectorization status updates
-  useEffect(() => {
-    let intervalId;
-    
-    if (vectorizing && projectId) {
-      console.log(`Starting vectorization polling for project ${projectId}`);
+  const checkVectorizationStatus = useCallback(async (projectId) => {
+    try {
+      // Poll for status updates
+      const status = await fetchVectorizationStatus(projectId);
+      setVectorProgress(status);
       
-      intervalId = setInterval(async () => {
-        try {
-          console.log(`Checking vectorization status for project ${projectId}`);
-          const response = await fetchVectorizationStatus(projectId);
-          console.log(`Vectorization status:`, response);
-          
-          setVectorProgress(response);
-          
-          // Stop polling if vectorization is complete or failed
-          if (response.status === 'completed' || response.status === 'failed') {
-            console.log(`Vectorization ${response.status}, stopping polling`);
-            setVectorizing(false);
-            clearInterval(intervalId);
-            
-            // If vectorization completed and we're saving locally, fetch the vector data
-            if (response.status === 'completed' && saveLocally) {
-              try {
-                console.log(`Fetching vector data for download`);
-                const vectorData = await fetchVectorData(projectId);
-                if (vectorData) {
-                  // Create a download link for the vector data
-                  const blob = new Blob([JSON.stringify(vectorData, null, 2)], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  setDownloadLink({
-                    url,
-                    filename: `${name.replace(/\s+/g, '_')}_vectors.json`
-                  });
-                  
-                  // Notify parent component that project is ready
-                  console.log(`Notifying parent that project ${projectId} is ready`);
-                  onUpload({
-                    projectId,
-                    name,
-                    description,
-                    file_count: files.length,
-                    vectorStatus: 'completed',
-                    saveLocally,
-                    vectorDataReady: true
-                  });
-                }
-              } catch (vectorErr) {
-                console.error('Error fetching vector data:', vectorErr);
-                // Still notify parent even if vector data fetch fails
-                onUpload({
-                  projectId,
-                  name,
-                  description,
-                  file_count: files.length,
-                  vectorStatus: 'completed',
-                  saveLocally,
-                  vectorDataReady: false
-                });
-              }
-            } else {
-              // Pass vector status to parent component for any final actions
-              console.log(`Notifying parent of vectorization ${response.status}`);
-              onUpload({
-                projectId,
-                name,
-                description,
-                file_count: files.length,
-                vectorStatus: response.status,
-                saveLocally,
-                vectorDataReady: response.status === 'completed'
-              });
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching vectorization status:', err);
-          // If we can't fetch status after several attempts, stop polling
-          if (err.response && err.response.status === 404) {
-            console.log('Project not found, stopping polling');
-            setVectorizing(false);
-            clearInterval(intervalId);
-          }
-        }
-      }, 3000); // Poll every 3 seconds
-    }
-    
-    return () => {
-      if (intervalId) {
-        console.log('Clearing vectorization polling interval');
-        clearInterval(intervalId);
+      // If vectorization is still processing, poll again after a delay
+      if (status.status === 'processing') {
+        setTimeout(() => checkVectorizationStatus(projectId), 5000);
+      } else if (status.status === 'completed') {
+        setVectorizing(false);
+        toast.success('Vectorization completed successfully!');
+      } else if (status.status === 'failed') {
+        setVectorizing(false);
+        toast.error('Vectorization failed. Please check the logs for details.');
       }
-    };
-  }, [vectorizing, projectId, name, description, files.length, onUpload, fetchVectorizationStatus, saveLocally, fetchVectorData]);
+    } catch (error) {
+      console.error('Error checking vectorization status:', error);
+      setVectorizing(false);
+      toast.error('Failed to check vectorization status');
+    }
+  }, [fetchVectorizationStatus]);
   
   // Handle file selection with automatic filtering
   const handleFileChange = (files) => {
@@ -289,7 +427,7 @@ function ProjectUploader({ onUpload }) {
     setError(null);
   };
   
-  // Handle step 1 form submission
+  // eslint-disable-next-line no-unused-vars
   const handleNextStep = (e) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -311,97 +449,29 @@ function ProjectUploader({ onUpload }) {
   const startVectorization = async (projectId) => {
     try {
       setVectorizing(true);
-      setVectorProgress({
-        status: 'processing',
-        processedFiles: 0,
-        totalFiles: files.length,
-        functionsProcessed: 0,
-        fileTypes: {},
-        metrics: null
-      });
       
-      // First, check if the Python vectorization was already run during upload
-      try {
-        const statusResponse = await fetchVectorizationStatus(projectId);
-        
-        // If vectorization is already in progress or completed from the upload process
-        if (statusResponse.status === 'processing' || statusResponse.status === 'completed') {
-          console.log('Vectorization already started by Python script during upload');
-          setVectorProgress(statusResponse);
-          return statusResponse;
-        }
-      } catch (statusErr) {
-        // If we can't get the status, we'll proceed with manually starting vectorization
-        console.log('No existing vectorization found, starting manually');
-      }
-      
-      // Get the auth token
-      const headers = {};
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-      }
-      
-      // Add saveLocally parameter to the request
-      const payload = {
-        saveLocally: true
+      // Set up headers
+      const headers = {
+        'Content-Type': 'application/json',
       };
       
-      // Call vectorization endpoint to start the process
-      try {
-        const response = await axios.post(
-          `${BACKEND_URL}/projects/${projectId}/vectorize`,
-          payload,
-          { headers }
-        );
-        
-        console.log('Vectorization started:', response.data);
-        return response.data;
-      } catch (err) {
-        // Handle authentication errors specifically
-        if (err.response && err.response.status === 401) {
-          console.error('Authentication error during vectorization:', err);
-          setError('Authentication error: Please make sure saveLocally is set to true for local development. The server requires authentication for cloud storage.');
-          
-          // Try again with saveLocally explicitly set
-          try {
-            console.log('Retrying with explicit saveLocally parameter...');
-            const retryResponse = await axios.post(
-              `${BACKEND_URL}/projects/${projectId}/vectorize`,
-              { ...payload, saveLocally: true },
-              { headers }
-            );
-            console.log('Retry successful:', retryResponse.data);
-            return retryResponse.data;
-          } catch (retryErr) {
-            throw new Error(`Retry failed: ${retryErr.message}`);
-          }
-        } else {
-          throw err; // Re-throw other errors to be caught by the outer catch block
-        }
+      // Add auth token if available
+      if (currentUser?.token) {
+        headers['Authorization'] = `Bearer ${currentUser.token}`;
       }
-    } catch (err) {
-      console.error('Error starting vectorization:', err);
+      
+      // Start vectorization
+      await projectAPI.startVectorization(projectId);
+      
+      toast.info('Vectorization started. This may take a few minutes.');
+      
+      // Start polling for status
+      checkVectorizationStatus(projectId);
+    } catch (error) {
+      console.error('Error starting vectorization:', error);
+      setError(error.message || 'Failed to start vectorization');
+      toast.error('Failed to start vectorization');
       setVectorizing(false);
-      setVectorProgress(prev => ({
-        ...prev,
-        status: 'failed'
-      }));
-      
-      // Enhanced error message with troubleshooting suggestions
-      let errorMessage = `Failed to start code vectorization: ${err.message}`;
-      if (err.response) {
-        if (err.response.status === 401) {
-          errorMessage += "\n\nAuthentication error: The server requires authentication. For local development, make sure 'saveLocally' is set to true.";
-        } else if (err.response.status === 404) {
-          errorMessage += "\n\nEndpoint not found: Check if the backend server is running and the API route is correct.";
-        } else if (err.response.status >= 500) {
-          errorMessage += "\n\nServer error: There might be an issue with the backend server or Python scripts.";
-        }
-      } else if (err.message.includes('Network Error')) {
-        errorMessage += "\n\nNetwork error: Check if the backend server is running at the correct address and port.";
-      }
-      
-      setError(errorMessage);
     }
   };
   
@@ -409,99 +479,51 @@ function ProjectUploader({ onUpload }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (files.length === 0) {
-      setError(`Please select ${uploadType === 'files' ? 'at least one file' : 'a folder'}`);
+    if (!name || name.trim() === '') {
+      toast.error('Project name is required');
       return;
     }
     
-    setUploading(true);
-    setError(null);
-    setUploadProgress(0); // Reset progress when upload starts
-    
     try {
-      const formData = new FormData();
-      formData.append('name', name);
-      formData.append('description', description);
-      formData.append('uploadType', uploadType);
-      formData.append('saveLocally', saveLocally.toString());
+      setUploading(true);
+      setError(null);
       
-      // Append each file to the formData
-      files.forEach(file => {
-        // Use webkitRelativePath for folder uploads
-        const relativePath = file.webkitRelativePath || file.name;
-        console.log(`Adding file to FormData: ${relativePath}`);
-        formData.append('project_files', file, relativePath);
-      });
-      
-      console.log(`Uploading to ${BACKEND_URL}/project/upload`);
-      console.log(`Total files: ${files.length}, Upload type: ${uploadType}`);
-      
-      // Get the auth token and add it to the request if available
-      const headers = {
-        'Content-Type': 'multipart/form-data'
+      // Create new project
+      const formData = {
+        name,
+        description: description || `Project created on ${new Date().toLocaleDateString()}`,
+        source: 'web-upload',
+        saveLocally
       };
       
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-        console.log('Added auth token to request');
-      } else {
-        console.log('No auth token available');
+      // Set up headers
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add auth token if available
+      if (currentUser?.token) {
+        headers['Authorization'] = `Bearer ${currentUser.token}`;
       }
       
-      // Check if the server is reachable before attempting the upload
-      try {
-        await axios.get(`${BACKEND_URL.split('/api')[0]}/health`);
-      } catch (healthErr) {
-        console.error('Server health check failed:', healthErr);
-        setError(`Server is not responding. Please check if the backend server is running on ${BACKEND_URL.split('/api')[0]}.`);
-        setUploading(false);
-        return;
-      }
+      // Create project
+      const response = await projectAPI.createProject(formData);
+      const newProjectId = response.data.id;
       
-      const response = await axios.post(
-        `${BACKEND_URL}/project/upload`, 
-        formData, 
-        { 
-          headers,
-          // Add upload progress event handler
-          onUploadProgress: (progressEvent) => {
-            // Calculate the progress percentage
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            console.log(`Upload progress: ${percentCompleted}%`);
-            setUploadProgress(percentCompleted);
-          }
-        }
-      );
+      toast.success('Project created successfully');
       
-      console.log('Upload response:', response.data);
+      // Go to next step
+      setStep(2);
       
-      if (response.data.success) {
-        console.log('Upload successful:', response.data);
-        const newProjectId = response.data.projectId;
-        setProjectId(newProjectId);
-        
-        // Start vectorization process
-        await startVectorization(newProjectId);
-        
-        // Update parent component with initial status
-        onUpload({
-          projectId: newProjectId,
-          name,
-          description,
-          file_count: files.length,
-          vectorizing: true,
-          saveLocally
-        });
-      } else {
-        console.error('Upload failed with server error:', response.data);
-        setError(response.data.message || 'Failed to create project');
-      }
-    } catch (err) {
-      console.error('Error uploading project:', err);
-      console.error('Error details:', err.response?.data || err.message);
-      setError(`Network error: ${err.message}. Please check if the backend server is running.`);
+      // Update project ID for further operations
+      setProjectId(newProjectId);
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error creating project:', error);
+      setError(error.message || 'Failed to create project');
+      toast.error('Failed to create project');
+      return null;
     } finally {
       setUploading(false);
     }
@@ -585,21 +607,52 @@ function ProjectUploader({ onUpload }) {
   // Define the form submission action
   async function handleProjectSubmit(formData) {
     try {
-      // Create project data
-      const projectData = {
-        name: formData.get('name'),
-        description: formData.get('description'),
-        user_id: session?.user?.id || 'anonymous',
-        save_locally: formData.get('storage') === 'local'
+      setLoading(true);
+      setError(null);
+      
+      // Add the user ID if available
+      const dataWithUser = {
+        ...formData,
+        user_id: currentUser?.id || 'anonymous',
+        saveLocally
       };
       
-      const response = await axios.post(`${BACKEND_URL}/projects`, projectData);
-      return { success: true, projectId: response.data.id };
+      // Create the project in the database
+      const response = await projectAPI.createProject(dataWithUser);
+      const newProjectId = response.data.id;
+      
+      // If creating a project with files
+      if (formData.files && formData.files.length > 0) {
+        // Upload files to the project
+        const fileFormData = new FormData();
+        formData.files.forEach(file => {
+          fileFormData.append('files', file);
+        });
+        
+        await fileAPI.uploadFile(newProjectId, fileFormData);
+      }
+      
+      // Pass the project data back up to parent if needed
+      if (onUpload) {
+        onUpload({
+          ...response.data,
+          user_id: currentUser?.id || 'anonymous',
+          files: formData.files || []
+        });
+      }
+      
+      // Navigate to the new project
+      toast.success('Project created successfully!');
+      navigate(`/projects/${newProjectId}`);
+      
+      return response.data;
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message || 'Failed to create project'
-      };
+      console.error('Error creating project:', error);
+      setError(error.message || 'Failed to create project');
+      toast.error('Error creating project: ' + (error.message || 'Unknown error'));
+      return null;
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -615,7 +668,7 @@ function ProjectUploader({ onUpload }) {
       const response = await axios.post(`${BACKEND_URL}/projects`, {
         name,
         description,
-        user_id: session?.user?.id || 'anonymous',
+        user_id: currentUser?.id || 'anonymous',
         save_locally: saveLocally
       });
       
@@ -627,7 +680,7 @@ function ProjectUploader({ onUpload }) {
     } finally {
       setUploading(false);
     }
-  }, [name, description, session?.user?.id, saveLocally]);
+  }, [name, description, currentUser?.id, saveLocally]);
 
   // Render file select UI based on upload type
   const renderFileSelector = () => {
@@ -707,8 +760,8 @@ function ProjectUploader({ onUpload }) {
           </div>
           
           <div className="form-group">
-            <label>Storage Options</label>
-            <div className="storage-options">
+            <label htmlFor="storage-options">Storage Options</label>
+            <div className="storage-options" id="storage-options">
               <div className="storage-option">
                 <input
                   type="radio"

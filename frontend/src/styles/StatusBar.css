@@ -1,0 +1,37 @@
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 1000;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.status-item.success {
+  color: #28a745;
+}
+
+.status-item.warning {
+  color: #ffc107;
+}
+
+.status-item.error {
+  color: #dc3545;
+}
+
+.status-icon {
+  font-size: 1rem;
+} 

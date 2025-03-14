@@ -1,0 +1,46 @@
+.vector-explorer {
+  padding: 20px;
+}
+
+.search-section {
+  margin-bottom: 24px;
+}
+
+.results-section {
+  margin-top: 24px;
+}
+
+.result-item {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background-color: #fff;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.similarity-score {
+  font-weight: bold;
+  color: #2196f3;
+}
+
+.code-preview {
+  background-color: #f8f9fa;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  overflow-x: auto;
+}
+
+.stats-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+} 

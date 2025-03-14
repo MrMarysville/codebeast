@@ -1,0 +1,55 @@
+.search-results {
+  margin-top: 20px;
+}
+
+.result-item {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background-color: #fff;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.similarity-score {
+  font-weight: bold;
+  color: #2196f3;
+}
+
+.code-preview {
+  background-color: #f8f9fa;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.file-path {
+  display: flex;
+  align-items: center;
+  color: #6c757d;
+  font-size: 0.875rem;
+  margin-bottom: 8px;
+}
+
+.language-tag {
+  margin-left: 8px;
+  background-color: #e9ecef;
+  color: #495057;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.description {
+  font-style: italic;
+  color: #6c757d;
+  margin-top: 8px;
+} 

@@ -5,12 +5,20 @@ import {
   FiMinimize, FiMaximize, FiLayers, FiCpu 
 } from 'react-icons/fi';
 import ForceGraph2D from 'react-force-graph-2d';
-import ForceGraph3D from 'react-force-graph-3d';
 import '../styles/FunctionGraph.css';
 import PropTypes from 'prop-types';
 import LoadingState from './ui/LoadingState';
 import ErrorState from './ui/ErrorState';
+import { toast } from 'react-toastify';
 
+// Import 3D graph conditionally to handle potential errors
+let ForceGraph3D = null;
+try {
+  // We need to use require instead of import for conditional loading
+  ForceGraph3D = require('react-force-graph-3d').default;
+} catch (err) {
+  console.warn('3D graph module could not be loaded, falling back to 2D only mode:', err.message);
+}
 
 // Component metadata for React 19
 export const metadata = {
@@ -157,6 +165,7 @@ const FunctionGraph = ({ projectId, filters = {}, onFilterChange = () => {}, sea
   const [selectedNode, setSelectedNode] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [is3D, setIs3D] = useState(false);
+  const [is3DSupported, setIs3DSupported] = useState(!!ForceGraph3D);
   const [layout, setLayout] = useState(LAYOUT_TYPES.FORCE);
   
   // Performance metrics
@@ -663,13 +672,15 @@ const FunctionGraph = ({ projectId, filters = {}, onFilterChange = () => {}, sea
       data-testid="function-graph"
     >
       <div className="function-graph-wrapper">
-      {selectedNode && (
-          <NodeDetails node={selectedNode} onClose={() => setSelectedNode(null)} onExpandCluster={expandCluster} />
-        )}
-        
         <GraphControls 
-          is3D={is3D}
-          setIs3D={setIs3D}
+          is3D={is3D && is3DSupported}
+          setIs3D={(value) => {
+            if (!is3DSupported && value) {
+              toast.warning('3D mode is not available due to compatibility issues. Using 2D mode instead.');
+              return;
+            }
+            setIs3D(value);
+          }}
           isFullscreen={isFullscreen}
           toggleFullscreen={toggleFullscreen}
           refreshGraph={() => graphRef.current.zoomToFit(400)}
@@ -679,43 +690,48 @@ const FunctionGraph = ({ projectId, filters = {}, onFilterChange = () => {}, sea
           metrics={metrics}
         />
         
-        {!is3D ? (
-        <ForceGraph2D
-          ref={graphRef}
-            graphData={renderGraphData}
-            nodeId="id"
-            nodeLabel={(node) => `${node.name} (${node.language})`}
-          nodeColor={getNodeColor}
-            nodeRelSize={6}
-            nodeVal={node => node.val || 1}
-            linkColor={() => "#999999"}
-          linkWidth={link => link.width || 1}
-            linkDirectionalParticles={4}
-            linkDirectionalParticleSpeed={d => d.value * 0.001}
-          onNodeClick={handleNodeClick}
-          enableNodeDrag={!filters.performanceMode}
-          enableZoomInteraction={!filters.performanceMode}
-          enablePanInteraction={!filters.performanceMode}
-            warmupTicks={50}
-            cooldownTicks={50}
-            onRenderFramePost={onFrameRender}
-          />
-        ) : (
-          <ForceGraph3D
-            ref={graphRef}
-            graphData={renderGraphData}
-            nodeId="id"
-            nodeLabel={(node) => `${node.name} (${node.language})`}
-            nodeColor={getNodeColor}
-            nodeRelSize={6}
-            nodeVal={node => node.val || 1}
-            linkColor={() => "#999999"}
-            linkWidth={link => link.width || 1}
-            enableNodeDrag={!filters.performanceMode}
-            enableNavigationControls={!filters.performanceMode}
-            showNavInfo={!filters.performanceMode}
-          />
+        {selectedNode && (
+          <NodeDetails node={selectedNode} onClose={() => setSelectedNode(null)} onExpandCluster={expandCluster} />
         )}
+        
+        <div className="function-graph">
+          {is3D && is3DSupported ? (
+            <ForceGraph3D
+              ref={graphRef}
+              graphData={renderGraphData}
+              nodeLabel={(node) => `${node.name} (${node.language})`}
+              nodeColor={getNodeColor}
+              nodeRelSize={6}
+              nodeVal={node => node.val || 1}
+              linkColor={() => "#999999"}
+              linkWidth={link => link.width || 1}
+              enableNodeDrag={!filters.performanceMode}
+              enableNavigationControls={!filters.performanceMode}
+              showNavInfo={!filters.performanceMode}
+            />
+          ) : (
+            <ForceGraph2D
+              ref={graphRef}
+              graphData={renderGraphData}
+              nodeLabel={(node) => `${node.name} (${node.language})`}
+              nodeColor={getNodeColor}
+              nodeRelSize={6}
+              nodeVal={node => node.val || 1}
+              linkColor={() => "#999999"}
+              linkWidth={link => link.value}
+              linkDirectionalParticles={2}
+              linkDirectionalParticleWidth={link => link.value}
+              onNodeClick={handleNodeClick}
+              onNodeDragEnd={node => {
+                node.fx = node.x;
+                node.fy = node.y;
+              }}
+              onLinkClick={handleNodeClick}
+              cooldownTicks={100}
+              onEngineStop={() => console.log('Engine stopped')}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

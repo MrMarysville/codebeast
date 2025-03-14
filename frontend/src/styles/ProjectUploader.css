@@ -1,0 +1,45 @@
+.upload-container {
+  padding: 20px;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  text-align: center;
+  background-color: #f8f9fa;
+  transition: border-color 0.3s ease;
+}
+
+.upload-container.drag-active {
+  border-color: #2196f3;
+  background-color: rgba(33, 150, 243, 0.1);
+}
+
+.upload-progress {
+  margin-top: 20px;
+}
+
+.file-list {
+  margin-top: 20px;
+  text-align: left;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.file-item:last-child {
+  border-bottom: none;
+}
+
+.file-name {
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+.upload-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+} 

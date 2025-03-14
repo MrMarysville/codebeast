@@ -38,6 +38,9 @@ export const useFetch = (url, options = {}) => {
   const optionsRef = useRef(options);
   const retriesLeftRef = useRef(retries);
   
+  // Use a ref to track if dependencies changed
+  const depsRef = useRef(dependencies);
+  
   // Update refs when inputs change
   useEffect(() => {
     urlRef.current = url;
@@ -166,7 +169,17 @@ export const useFetch = (url, options = {}) => {
     return fetchData(true); // Force refetch
   }, [fetchData]);
   
-  // Fetch data when dependencies change
+  // Check if dependencies have changed
+  useEffect(() => {
+    // Compare current dependencies with the stored ones
+    const depsChanged = JSON.stringify(dependencies) !== JSON.stringify(depsRef.current);
+    if (depsChanged) {
+      depsRef.current = [...dependencies];
+      fetchData();
+    }
+  }, [dependencies, fetchData]);
+  
+  // Initial fetch when URL changes
   useEffect(() => {
     const cleanup = fetchData();
     return () => {
@@ -174,7 +187,7 @@ export const useFetch = (url, options = {}) => {
         cleanup();
       }
     };
-  }, [fetchData, ...dependencies]);
+  }, [url, fetchData]);
   
   return { data, loading, error, refetch, clearCache };
 };

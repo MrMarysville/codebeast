@@ -1,334 +1,269 @@
-import { FiActivity, FiCode, FiCpu, FiDatabase, FiFile, FiAlertTriangle, FiCheckCircle, FiLoader, FiRefreshCw, FiSearch, FiTrendingUp, FiClock, FiGitBranch } from 'react-icons/fi';
-import VectorizationTrigger from './VectorizationTrigger';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Container,
+  Divider,
+  Grid,
+  LinearProgress,
+  Paper,
+  Typography
+} from '@mui/material';
+import {
+  ArrowBack as BackIcon,
+  Analytics as AnalyticsIcon,
+  Check as CheckIcon,
+  Error as ErrorIcon,
+  Refresh as RefreshIcon
+} from '@mui/icons-material';
+import { projectAPI } from '../utils/api';
 
+const VectorizationStatus = () => {
+  const { projectId } = useParams();
+  const navigate = useNavigate();
+  const [project, setProject] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [pollingInterval, setPollingInterval] = useState(null);
 
-// Component metadata for React 19
-export const metadata = {
-  componentName: "VectorizationStatus",
-  description: "VectorizationStatus component",
-};
+  const fetchProject = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await projectAPI.getProjectById(projectId);
+      setProject(response.data);
+    } catch (err) {
+      console.error('Error fetching project:', err);
+      toast.error('Failed to load project details');
+      navigate('/projects');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, navigate]);
 
-const VectorizationStatus = ({ 
-  status, 
-  onRefresh, 
-  projectId, 
-  onVectorizationStarted,
-  changedFilesCount,
-  lastUpdateTimestamp,
-  lastUpdateType,
-  cacheInfo
-}) => {
-  if (!status) {
-    return <div className="vector-loading">Loading status...</div>;
-  }
+  const fetchStatus = useCallback(async () => {
+    try {
+      const response = await projectAPI.getVectorizationStatus(projectId);
+      setStatus(response.data);
+      
+      // Calculate progress if available
+      if (response.data.progress) {
+        setProgress(response.data.progress);
+      }
+      
+      // If vectorization is complete or failed, stop polling
+      if (response.data.status === 'completed' || response.data.status === 'failed') {
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          setPollingInterval(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching vectorization status:', err);
+      toast.error('Failed to fetch vectorization status');
+    }
+  }, [projectId, pollingInterval]);
 
-  // Format the state for display
-  const getStateDisplay = () => {
-    switch (status.state || status.status) {
-      case 'not_started':
-        return { 
-          label: 'Not Started', 
-          className: 'not-started',
-          icon: <FiCode />
-        };
-      case 'initializing':
-      case 'processing':
-      case 'in_progress':
-        return { 
-          label: 'In Progress', 
-          className: 'in-progress',
-          icon: <FiLoader className="spinner-small" /> 
-        };
-      case 'completed':
-        return { 
-          label: 'Completed', 
-          className: 'completed',
-          icon: <FiCheckCircle /> 
-        };
-      case 'completed_with_errors':
-        return { 
-          label: 'Completed with Errors', 
-          className: 'error',
-          icon: <FiAlertTriangle /> 
-        };
-      case 'failed':
-      case 'error':
-        return {
-          label: 'Failed',
-          className: 'error',
-          icon: <FiAlertTriangle />
-        };
-      default:
-        return { 
-          label: 'Unknown', 
-          className: '',
-          icon: <FiCode /> 
-        };
+  useEffect(() => {
+    fetchProject();
+    fetchStatus();
+    
+    // Set up polling for status updates
+    const interval = setInterval(fetchStatus, 5000);
+    setPollingInterval(interval);
+    
+    // Clean up on unmount
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [projectId, fetchProject, fetchStatus, pollingInterval]);
+
+  const startVectorization = async () => {
+    try {
+      setLoading(true);
+      await projectAPI.startVectorization(projectId);
+      toast.info('Vectorization started. This may take a few minutes.');
+      
+      // Fetch status immediately after starting
+      await fetchStatus();
+      
+      // Start polling if not already polling
+      if (!pollingInterval) {
+        const interval = setInterval(fetchStatus, 5000);
+        setPollingInterval(interval);
+      }
+    } catch (err) {
+      console.error('Error starting vectorization:', err);
+      toast.error('Failed to start vectorization');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const stateDisplay = getStateDisplay();
+  const getStatusColor = () => {
+    if (!status) return 'grey';
+    
+    switch (status.status) {
+      case 'completed':
+        return 'success.main';
+      case 'processing':
+        return 'warning.main';
+      case 'failed':
+        return 'error.main';
+      default:
+        return 'grey';
+    }
+  };
 
-  // If vectorization has not started, show the trigger button
-  if ((status.state === 'not_started' || status.status === 'not_started' || status.status === 'idle') && 
-      (!status.processedFiles && !status.processed)) {
+  const getStatusIcon = () => {
+    if (!status) return <CircularProgress size={24} />;
+    
+    switch (status.status) {
+      case 'completed':
+        return <CheckIcon color="success" fontSize="large" />;
+      case 'processing':
+        return <CircularProgress size={24} />;
+      case 'failed':
+        return <ErrorIcon color="error" fontSize="large" />;
+      default:
+        return <CircularProgress size={24} />;
+    }
+  };
+
+  if (loading && !status) {
     return (
-      <div className="vectorization-empty">
-        <div className="empty-message">
-          <h3>Codebase Not Vectorized</h3>
-          <p>
-            Vectorize your codebase to unlock powerful features like semantic code search, 
-            function relationships visualization, and enhanced feature processing.
-          </p>
-          <VectorizationTrigger 
-            projectId={projectId} 
-            onVectorizationStarted={onVectorizationStarted} 
-          />
-        </div>
-        <div className="benefits">
-          <div className="benefit-item">
-            <FiSearch className="benefit-icon" />
-            <h4>Semantic Search</h4>
-            <p>Find functions by meaning, not just keywords</p>
-          </div>
-          <div className="benefit-item">
-            <FiTrendingUp className="benefit-icon" />
-            <h4>Code Relationships</h4>
-            <p>Visualize connections between your functions</p>
-          </div>
-          <div className="benefit-item">
-            <FiCpu className="benefit-icon" />
-            <h4>Enhanced Features</h4>
-            <p>Contextual feature processing based on your code patterns</p>
-          </div>
-        </div>
-      </div>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
-  // Calculate progress percentages
-  const totalCount = status.total || status.totalFiles || 1; // Avoid division by zero
-  const processedCount = status.processed || status.processedFiles || 0;
-  const pendingCount = status.pending || (totalCount - processedCount) || 0;
-  const failedCount = status.failed || 0;
-  
-  const processedPercent = (processedCount / totalCount) * 100;
-  const pendingPercent = (pendingCount / totalCount) * 100;
-  const failedPercent = (failedCount / totalCount) * 100;
-
-  // Format relative time
-  const formatRelativeTime = (timestamp) => {
-    if (!timestamp) return 'Unknown';
-    
-    try {
-      const date = new Date(timestamp);
-      const now = new Date();
-      const diffMs = now - date;
-      const diffSec = Math.floor(diffMs / 1000);
-      
-      if (diffSec < 60) return 'just now';
-      if (diffSec < 3600) return `${Math.floor(diffSec / 60)} minutes ago`;
-      if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} hours ago`;
-      return `${Math.floor(diffSec / 86400)} days ago`;
-    } catch (e) {
-      return 'Invalid date';
-    }
-  };
-
-  // Last updated time
-  const lastUpdated = status.lastUpdated || status.endTime || status.timestamp;
-  const relativeTime = lastUpdated ? formatRelativeTime(lastUpdated) : '';
-
   return (
-    <div className="vectorization-status">
-      <div className="status-header">
-        <div className="status-indicator">
-          <div className={`status-badge ${stateDisplay.className}`}>
-            {stateDisplay.icon}
-            <span>{stateDisplay.label}</span>
-          </div>
-        </div>
-        <div className="header-actions">
-          <button className="refresh-button" onClick={onRefresh} title="Refresh status">
-            <FiRefreshCw />
-          </button>
-        </div>
-      </div>
-      
-      <div className="progress-container">
-        <div className="progress-bar">
-          <div className="progress-segment processed" style={{ width: `${processedPercent}%` }} title={`Processed: ${processedCount} files`}>
-            {processedPercent > 10 && `${Math.round(processedPercent)}%`}
-          </div>
-          {failedCount > 0 && (
-            <div className="progress-segment failed" style={{ width: `${failedPercent}%` }} title={`Failed: ${failedCount} files`}>
-              {failedPercent > 10 && `${Math.round(failedPercent)}%`}
-            </div>
-          )}
-          {pendingCount > 0 && (
-            <div className="progress-segment pending" style={{ width: `${pendingPercent}%` }} title={`Pending: ${pendingCount} files`}>
-              {pendingPercent > 10 && `${Math.round(pendingPercent)}%`}
-            </div>
-          )}
-        </div>
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <Button
+          startIcon={<BackIcon />}
+          onClick={() => navigate(`/projects/${projectId}`)}
+          sx={{ mr: 2 }}
+        >
+          Back to Project
+        </Button>
+        <Typography variant="h4" component="h1">
+          Vectorization Status: {project?.name}
+        </Typography>
+      </Box>
+
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h5">Status</Typography>
+          <Button
+            startIcon={<RefreshIcon />}
+            onClick={fetchStatus}
+            disabled={loading}
+          >
+            Refresh
+          </Button>
+        </Box>
         
-        <div className="progress-stats">
-          <div className="stat-group">
-            <div className="stat-item">
-              <FiFile className="stat-icon processed" />
-              <div className="stat-data">
-                <div className="stat-label">Total Files</div>
-                <div className="stat-value">{totalCount}</div>
-              </div>
-            </div>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <Box sx={{ mr: 2 }}>
+            {getStatusIcon()}
+          </Box>
+          <Box sx={{ flexGrow: 1 }}>
+            <Typography variant="h6" gutterBottom>
+              {status?.status === 'completed' ? 'Vectorization Complete' : 
+               status?.status === 'processing' ? 'Vectorization in Progress' : 
+               status?.status === 'failed' ? 'Vectorization Failed' : 
+               'Not Started'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {status?.message || 'No status message available'}
+            </Typography>
             
-            <div className="stat-item">
-              <FiCheckCircle className="stat-icon processed" />
-              <div className="stat-data">
-                <div className="stat-label">Processed</div>
-                <div className="stat-value">{processedCount}</div>
-              </div>
-            </div>
-            
-            {status.functionsProcessed !== undefined && (
-              <div className="stat-item">
-                <FiCode className="stat-icon" />
-                <div className="stat-data">
-                  <div className="stat-label">Functions</div>
-                  <div className="stat-value">{status.functionsProcessed}</div>
-                </div>
-              </div>
+            {status?.status === 'processing' && (
+              <Box sx={{ mt: 2 }}>
+                <LinearProgress 
+                  variant={progress > 0 ? "determinate" : "indeterminate"} 
+                  value={progress} 
+                />
+                {progress > 0 && (
+                  <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
+                    {Math.round(progress)}% Complete
+                  </Typography>
+                )}
+              </Box>
             )}
-            
-            {status.componentsProcessed !== undefined && (
-              <div className="stat-item">
-                <FiCpu className="stat-icon" />
-                <div className="stat-data">
-                  <div className="stat-label">Components</div>
-                  <div className="stat-value">{status.componentsProcessed}</div>
-                </div>
-              </div>
-            )}
-            
-            {pendingCount > 0 && (
-              <div className="stat-item">
-                <FiLoader className="stat-icon pending" />
-                <div className="stat-data">
-                  <div className="stat-label">Pending</div>
-                  <div className="stat-value">{pendingCount}</div>
-                </div>
-              </div>
-            )}
-            
-            {failedCount > 0 && (
-              <div className="stat-item">
-                <FiAlertTriangle className="stat-icon failed" />
-                <div className="stat-data">
-                  <div className="stat-label">Failed</div>
-                  <div className="stat-value">{failedCount}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
         
-        {lastUpdated && (
-          <div className="last-updated">
-            <FiClock className="time-icon" />
-            <span>Last updated: <time dateTime={lastUpdated}>{relativeTime}</time></span>
-          </div>
-        )}
-      </div>
-      
-      {/* Incremental update information */}
-      {(changedFilesCount > 0 || lastUpdateType) && (
-        <div className="incremental-info">
-          <div className="incremental-header">
-            <FiGitBranch className="incremental-icon" />
-            <h4>Update Information</h4>
-          </div>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              Last Updated: {status?.timestamp ? new Date(status.timestamp).toLocaleString() : 'N/A'}
+            </Typography>
+            {status?.startTime && (
+              <Typography variant="body2" color="text.secondary">
+                Started: {new Date(status.startTime).toLocaleString()}
+              </Typography>
+            )}
+            {status?.endTime && (
+              <Typography variant="body2" color="text.secondary">
+                Completed: {new Date(status.endTime).toLocaleString()}
+              </Typography>
+            )}
+          </Box>
           
-          <div className="incremental-details">
-            {lastUpdateType && (
-              <div className="incremental-item">
-                <span className="item-label">Update Type:</span>
-                <span className={`update-type ${lastUpdateType}`}>
-                  {lastUpdateType === 'incremental' ? 'Incremental' : 
-                   lastUpdateType === 'selective' ? 'Selective' : 'Full'}
-                </span>
-              </div>
-            )}
-            
-            {changedFilesCount > 0 && (
-              <div className="incremental-item">
-                <span className="item-label">Changed Files:</span>
-                <span className="item-value">{changedFilesCount}</span>
-              </div>
-            )}
-            
-            {lastUpdateTimestamp && (
-              <div className="incremental-item">
-                <span className="item-label">Timestamp:</span>
-                <span className="item-value">{new Date(lastUpdateTimestamp).toLocaleString()}</span>
-              </div>
-            )}
-          </div>
-        </div>
+          <Box>
+            {status?.status === 'completed' ? (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<AnalyticsIcon />}
+                onClick={() => navigate(`/projects/${projectId}/vectors`)}
+              >
+                View Vector Data
+              </Button>
+            ) : status?.status === 'failed' || !status?.status ? (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={startVectorization}
+                disabled={loading}
+              >
+                {loading ? <CircularProgress size={24} /> : 'Start Vectorization'}
+              </Button>
+            ) : null}
+          </Box>
+        </Box>
+      </Paper>
+
+      {status?.details && (
+        <Paper sx={{ p: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Vectorization Details
+          </Typography>
+          <Typography variant="body2" component="pre" sx={{ 
+            whiteSpace: 'pre-wrap',
+            backgroundColor: '#f5f5f5',
+            p: 2,
+            borderRadius: 1,
+            maxHeight: '300px',
+            overflow: 'auto'
+          }}>
+            {typeof status.details === 'string' ? status.details : JSON.stringify(status.details, null, 2)}
+          </Typography>
+        </Paper>
       )}
-      
-      {/* Cache information if available */}
-      {cacheInfo && (
-        <div className="cache-info">
-          <div className="cache-header">
-            <FiDatabase className="cache-icon" />
-            <h4>Vector Cache Information</h4>
-          </div>
-          
-          <div className="cache-details">
-            <div className="cache-item">
-              <span className="item-label">Cached Functions:</span>
-              <span className="item-value">{cacheInfo.cachedFunctions || 0}</span>
-            </div>
-            
-            <div className="cache-item">
-              <span className="item-label">Cache Size:</span>
-              <span className="item-value">{cacheInfo.totalCacheSize ? `${(cacheInfo.totalCacheSize / (1024 * 1024)).toFixed(2)} MB` : 'Unknown'}</span>
-            </div>
-            
-            {cacheInfo.cacheHitRate !== undefined && (
-              <div className="cache-item">
-                <span className="item-label">Cache Hit Rate:</span>
-                <span className="item-value">{`${(cacheInfo.cacheHitRate * 100).toFixed(1)}%`}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      
-      {/* Error message if any */}
-      {status.errorMessage && (
-        <div className="error-message">
-          <FiAlertTriangle className="error-icon" />
-          <div className="error-content">
-            <h4>Error Details</h4>
-            <p>{status.errorMessage}</p>
-          </div>
-        </div>
-      )}
-      
-      {/* Let user re-trigger vectorization if needed */}
-      {(status.state === 'completed' || status.state === 'completed_with_errors' || 
-        status.status === 'completed' || status.status === 'completed_with_errors' ||
-        status.status === 'failed' || status.status === 'error') && (
-        <div className="revectorize-section">
-          <p>Need to update your vectors? You can re-run the vectorization process:</p>
-          <VectorizationTrigger 
-            projectId={projectId} 
-            onVectorizationStarted={onVectorizationStarted}
-          />
-        </div>
-      )}
-    </div>
+    </Container>
   );
 };
 

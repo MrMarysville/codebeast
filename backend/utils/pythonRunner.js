@@ -5,6 +5,18 @@
  * to be installed. It maintains the same API interfaces so the application can
  * continue to function without Python dependencies.
  */
+const os = require('os');
+
+/**
+ * Get the appropriate Python command based on the operating system
+ * @returns {string} - The Python command to use
+ */
+const getPythonCommand = () => {
+  console.log('Getting Python command for the current environment');
+  // On Windows, prefer 'py', on other platforms use 'python'
+  const isWindows = os.platform() === 'win32';
+  return process.env.PYTHON_PATH || (isWindows ? 'py' : 'python');
+};
 
 /**
  * Mock Python dependency check - always returns success
@@ -27,15 +39,6 @@ const checkPythonDependencies = async (requiredPackages = ['numpy', 'scikit-lear
     success: true,
     dependencies
   };
-};
-
-/**
- * Mock Python command detector - always returns a fake command
- * @returns {string} - A fake Python command
- */
-const getPythonCommand = () => {
-  console.log('Mock Python command detector (Python not required)');
-  return 'mock-python';
 };
 
 /**

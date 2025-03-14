@@ -1,22 +1,39 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
-import axios from 'axios';
-import ChatInterface from './ChatInterface';
-import CodePreview from './CodePreview';
-import ProjectSettings from './ProjectSettings';
-import FileTree from './FileTree';
-import FileViewer from './FileViewer';
-import { useAuth } from '../contexts/AuthContext';
-import VectorExplorer from './VectorExplorer';
-import FunctionGraph from './FunctionGraph';
-import SimilaritySearch from './SimilaritySearch';
-import VectorizationStatus from './VectorizationStatus';
-import StatusBar from './StatusBar';
-import FileTypeBreakdown from './FileTypeBreakdown';
-import CodeComplexityView from './CodeComplexityView';
-import '../styles/ProjectWorkspace.css';
-
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Container,
+  Divider,
+  Grid,
+  IconButton,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  ListItemButton,
+  Paper,
+  Typography,
+  Tooltip
+} from '@mui/material';
+import {
+  Upload as UploadIcon,
+  Folder as FolderIcon,
+  InsertDriveFile as FileIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  ArrowBack as BackIcon,
+  Refresh as RefreshIcon,
+  Analytics as AnalyticsIcon,
+  Code as CodeIcon,
+  AccountTree as TreeIcon,
+  BubbleChart as GraphIcon
+} from '@mui/icons-material';
+import { projectAPI } from '../utils/api';
 
 // Component metadata for React 19
 export const metadata = {
@@ -24,457 +41,344 @@ export const metadata = {
   description: "ProjectWorkspace component",
 };
 
-// Set backend URL from environment or default
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5001/api';
-
-const TAB_CONFIG = [
-  { id: 'files', label: 'Files', icon: '📁' },
-  { id: 'vectors', label: 'Vectors', icon: '🔍' },
-  { id: 'features', label: 'Features', icon: '✨' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' }
-];
-
 function ProjectWorkspace() {
-  const [status, setStatus] = useState('connecting');
-  const [messages, setMessages] = useState([]);
-  const [previewContent, setPreviewContent] = useState(null);
-  const [project, setProject] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [socket, setSocket] = useState(null);
-  const [activeTab, setActiveTab] = useState('files');
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [vectorizationStatus, setVectorizationStatus] = useState(null);
-  const [isVectorDataLoaded, setIsVectorDataLoaded] = useState(false);
-  
   const { projectId } = useParams();
   const navigate = useNavigate();
-  const { session } = useAuth();
-
-  // Fetch project data when component mounts
-  useEffect(() => {
-    const fetchProject = async () => {
-      try {
-        setLoading(true);
-        console.log(`Fetching project with ID: ${projectId}`);
-        
-        // Set up headers with authentication if available
-        const headers = {};
-        if (session?.access_token) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
-        }
-        
-        // Define all the endpoints we'll try in order
-        const endpoints = [
-          // Authenticated endpoint (with /api)
-          `${BACKEND_URL}/projects/${projectId}`,
-          // Direct endpoint (no /api)
-          `/projects/${projectId}`,
-          // Local project endpoint under /project path
-          `${BACKEND_URL}/project/projects/${projectId}/info`,
-          // Direct endpoint with /info
-          `/projects/${projectId}/info`,
-          // Local endpoints without BACKEND_URL
-          `project/projects/${projectId}/info`,
-          `projects/${projectId}/info`
-        ];
-        
-        console.log(`Trying ${endpoints.length} endpoints for project ${projectId}`);
-        
-        // Try all endpoints until one works
-        let success = false;
-        let lastError = null;
-        
-        for (const endpoint of endpoints) {
-          try {
-            console.log(`Trying endpoint: ${endpoint}`);
-            const response = await axios.get(endpoint, { headers });
-            
-            if (response.data && response.data.success) {
-              console.log(`Successfully fetched project from ${endpoint}`);
-              setProject(response.data.project);
-              setLoading(false);
-              success = true;
-              break;
-            }
-          } catch (err) {
-            console.log(`Error fetching from ${endpoint}: ${err.message}`);
-            lastError = err;
-            // Continue to next endpoint
-          }
-        }
-        
-        if (!success) {
-          console.error('All endpoints failed:', lastError);
-          throw lastError || new Error('Failed to fetch project from any endpoint');
-        }
-      } catch (err) {
-        console.error('Error loading project:', err);
-        
-        // Provide more descriptive error messages based on status codes
-        if (err.response) {
-          const status = err.response.status;
-          switch (status) {
-            case 400:
-              setError(`Invalid project ID or parameters (${projectId})`);
-              break;
-            case 401:
-              setError('Authentication required - please log in again');
-              break;
-            case 403:
-              setError('You do not have permission to access this project');
-              break;
-            case 404:
-              setError(`Project not found - ID: ${projectId} may have been deleted or is incorrect`);
-              break;
-            default:
-              setError(`Server error (${status}): ${err.response.data?.message || 'Unknown error'}`);
-          }
-        } else if (err.request) {
-          // Request was made but no response received
-          setError('No response from server. Please check your network connection.');
-        } else {
-          // Something else went wrong
-          setError(`Error: ${err.message}`);
-        }
-        setLoading(false);
-      }
-    };
-
-    if (projectId) {
-      fetchProject();
-    } else {
-      setError('No project ID provided');
+  const [project, setProject] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [vectorizing, setVectorizing] = useState(false);
+  const [vectorizationStatus, setVectorizationStatus] = useState(null);
+  
+  const fetchProject = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await projectAPI.getProjectById(projectId);
+      setProject(response.data);
+    } catch (err) {
+      console.error('Error fetching project:', err);
+      toast.error('Failed to load project details');
+      navigate('/projects');
+    } finally {
       setLoading(false);
     }
-  }, [projectId, session]);
+  }, [projectId, navigate]);
 
-  // Add new useEffect for vector status checking
-  useEffect(() => {
-    const checkVectorization = async () => {
-      if (!project) return;
+  const fetchFiles = useCallback(async () => {
+    try {
+      setFileLoading(true);
+      const response = await projectAPI.getProjectFiles(projectId);
+      setFiles(response.data.files);
+    } catch (err) {
+      console.error('Error fetching files:', err);
+      toast.error('Failed to load project files');
+    } finally {
+      setFileLoading(false);
+    }
+  }, [projectId]);
+
+  const checkVectorizationStatus = useCallback(async () => {
+    try {
+      const response = await projectAPI.getVectorizationStatus(projectId);
+      setVectorizationStatus(response.data);
       
-      try {
-        // Define all possible endpoints to try
-        const endpoints = [
-          `${BACKEND_URL}/projects/${projectId}/vectorization-status`,
-          `/projects/${projectId}/vectorization-status`,
-          `${BACKEND_URL}/api/projects/${projectId}/vectors/status?saveLocally=true`,
-          `/api/projects/${projectId}/vectors/status?saveLocally=true`
-        ];
-        
-        console.log('Checking vectorization status...');
-        
-        // Try each endpoint until one works
-        let success = false;
-        let lastError = null;
-        
-        for (const endpoint of endpoints) {
-          try {
-            console.log(`Trying vectorization status endpoint: ${endpoint}`);
-            const response = await axios.get(endpoint);
-            
-            if (response.data && response.data.success) {
-              console.log(`Successfully fetched vectorization status from ${endpoint}:`, response.data);
-              setVectorizationStatus(response.data.status);
-              setIsVectorDataLoaded(response.data.status === 'completed');
-              success = true;
-              break;
-            }
-          } catch (err) {
-            console.log(`Error fetching vectorization status from ${endpoint}:`, err.message);
-            lastError = err;
-            // Continue to next endpoint
-          }
-        }
-        
-        if (!success) {
-          console.error('All vectorization status endpoints failed:', lastError);
-          throw lastError || new Error('Failed to fetch vectorization status from any endpoint');
-        }
-      } catch (err) {
-        console.error('Error checking vectorization status:', err);
+      // If vectorization is in progress, poll for updates
+      if (response.data.status === 'processing') {
+        setVectorizing(true);
+        setTimeout(checkVectorizationStatus, 5000); // Poll every 5 seconds
+      } else {
+        setVectorizing(false);
       }
-    };
-
-    checkVectorization();
-    // Poll for status every 5 seconds if vectorization is in progress
-    const interval = setInterval(() => {
-      if (vectorizationStatus === 'processing') {
-        checkVectorization();
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [project, projectId, vectorizationStatus]);
+    } catch (err) {
+      console.error('Error checking vectorization status:', err);
+      setVectorizing(false);
+    }
+  }, [projectId]);
   
-  // Connect to Socket.io
   useEffect(() => {
-    if (!projectId || !session) return;
-    
-    // Initialize socket connection
-    const newSocket = io(BACKEND_URL, {
-      query: { projectId },
-      auth: {
-        token: session.access_token
-      }
-    });
-    
-    setSocket(newSocket);
-    
-    // Socket event handlers
-    newSocket.on('connect', () => {
-      console.log('Connected to server');
-      setStatus('connected');
-      
-      // Join project room
-      newSocket.emit('join_project', { projectId });
-    });
-    
-    newSocket.on('disconnect', () => {
-      console.log('Disconnected from server');
-      setStatus('disconnected');
-      
-      // Add disconnect message
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'system',
-          content: 'Disconnected from server. Trying to reconnect...',
-          timestamp: new Date()
-        }
-      ]);
-    });
-    
-    newSocket.on('progress', (data) => {
-      setStatus(data.status || 'processing');
-      
-      // Add system message
-      if (data.message) {
-        setMessages(prev => [
-          ...prev,
-          { 
-            type: 'system', 
-            content: data.message, 
-            timestamp: new Date() 
-          }
-        ]);
-      }
-    });
-    
-    newSocket.on('preview', (data) => {
-      setPreviewContent(data);
-    });
-    
-    newSocket.on('error', (error) => {
-      console.error('Socket error:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'system',
-          content: `Error: ${error.message || 'Something went wrong'}`,
-          timestamp: new Date()
-        }
-      ]);
-    });
-    
-    // Clean up on unmount
-    return () => {
-      if (newSocket) {
-        newSocket.disconnect();
-      }
-    };
-  }, [projectId, session]);
-  
-  // Handle file selection
-  const handleFileSelect = (filePath) => {
-    setSelectedFile(filePath);
+    fetchProject();
+    fetchFiles();
+    checkVectorizationStatus();
+  }, [projectId, fetchProject, fetchFiles, checkVectorizationStatus]);
+
+  const startVectorization = async () => {
+    try {
+      setVectorizing(true);
+      await projectAPI.startVectorization(projectId);
+      toast.info('Vectorization started. This may take a few minutes.');
+      checkVectorizationStatus();
+    } catch (err) {
+      console.error('Error starting vectorization:', err);
+      toast.error('Failed to start vectorization');
+      setVectorizing(false);
+    }
   };
 
-  // Feature request handler
-  const handleFeatureRequest = async (request, options = {}) => {
-    if (!socket || status === 'disconnected') {
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'system',
-          content: 'Cannot process request: Not connected to server',
-          timestamp: new Date()
-        }
-      ]);
+  const handleDeleteFile = async (filePath) => {
+    if (!window.confirm(`Are you sure you want to delete ${filePath}?`)) {
       return;
     }
     
     try {
-      // Add user message to chat
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'user',
-          content: request,
-          timestamp: new Date()
-        }
-      ]);
-      
-      // Emit request to server
-      socket.emit('feature_request', {
-        projectId,
-        request,
-        options
-      });
-      
-      // Add processing message
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'system',
-          content: 'Processing your request...',
-          timestamp: new Date()
-        }
-      ]);
-      
-      // Set status to processing
-      setStatus('processing');
+      await projectAPI.deleteFile(projectId, filePath);
+      toast.success(`File ${filePath} deleted successfully`);
+      fetchFiles();
     } catch (err) {
-      console.error('Error sending feature request:', err);
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'system',
-          content: `Error: ${err.message || 'Failed to send request'}`,
-          timestamp: new Date()
-        }
-      ]);
+      console.error('Error deleting file:', err);
+      toast.error('Failed to delete file');
     }
   };
-  
-  // Show appropriate loading, error, or content UI
+
+  const renderFileTree = (files) => {
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 3 }}>
+          <Typography variant="body1" color="text.secondary">
+            No files found in this project.
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<UploadIcon />}
+            onClick={() => navigate(`/projects/${projectId}/upload`)}
+            sx={{ mt: 2 }}
+          >
+            Upload Files
+          </Button>
+        </Box>
+      );
+    }
+
+    return (
+      <List component="div" dense>
+        {files.map((file) => (
+          <ListItem
+            key={file.path}
+            disablePadding
+            secondaryAction={
+              <IconButton edge="end" onClick={() => handleDeleteFile(file.path)}>
+                <DeleteIcon />
+              </IconButton>
+            }
+          >
+            <ListItemButton>
+              <ListItemIcon>
+                {file.type === 'directory' ? <FolderIcon color="primary" /> : <FileIcon />}
+              </ListItemIcon>
+              <ListItemText
+                primary={file.name}
+                secondary={file.path}
+              />
+            </ListItemButton>
+          </ListItem>
+        ))}
+      </List>
+    );
+  };
+
   if (loading) {
     return (
-      <div className="project-workspace loading-state">
-        <div className="loading-animation">
-          <div className="spinner"></div>
-          <p>Loading project workspace...</p>
-        </div>
-      </div>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
     );
   }
-  
-  if (error) {
-    return (
-      <div className="project-workspace error-state">
-        <div className="error-container">
-          <h2>Error</h2>
-          <p>{error}</p>
-          <div className="error-actions">
-            <button onClick={() => navigate('/dashboard')}>
-              Back to Dashboard
-            </button>
-            <button onClick={() => window.location.reload()}>
-              Reload Page
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  
-  // Render main workspace
+
   return (
-    <div className="project-workspace">
-      <div className="workspace-header">
-        <h1>{project?.name || 'Project Workspace'}</h1>
-        <div className="workspace-actions">
-          <button onClick={() => navigate('/projects')}>
-            Back to Projects
-          </button>
-        </div>
-      </div>
-      
-      <div className="workspace-tabs">
-        {TAB_CONFIG.map(tab => (
-          <button
-            key={tab.id}
-            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton onClick={() => navigate('/projects')} sx={{ mr: 2 }}>
+            <BackIcon />
+          </IconButton>
+          <Typography variant="h4" component="h1">
+            {project?.name}
+          </Typography>
+        </Box>
+        <Box>
+          <Button
+            variant="outlined"
+            startIcon={<UploadIcon />}
+            onClick={() => navigate(`/projects/${projectId}/upload`)}
+            sx={{ mr: 1 }}
           >
-            <span className="tab-icon">{tab.icon}</span>
-            <span className="tab-label">{tab.label}</span>
-          </button>
-        ))}
-      </div>
-      
-      <div className="workspace-content">
-        {activeTab === 'files' && (
-          <div className="files-container">
-            <div className="file-tree-container">
-              <FileTree 
-                projectId={projectId} 
-                onFileSelect={handleFileSelect}
-                selectedFile={selectedFile}
-              />
-            </div>
-            <div className="file-viewer-container">
-              <FileViewer 
-                selectedFile={selectedFile}
-                projectId={projectId}
-              />
-            </div>
-          </div>
-        )}
-        
-        {activeTab === 'vectors' && (
-          <div className="vectors-container">
-            <VectorizationStatus
-              projectId={projectId}
-              status={vectorizationStatus}
-              onStatusChange={setVectorizationStatus}
-            />
-            {isVectorDataLoaded && (
-              <>
-                <div className="vector-analysis-grid">
-                  <FileTypeBreakdown />
-                  <CodeComplexityView projectId={projectId} />
-                  <VectorExplorer projectId={projectId} />
-                </div>
-                <FunctionGraph projectId={projectId} />
-                <SimilaritySearch projectId={projectId} />
-              </>
+            Upload Files
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={vectorizing ? <CircularProgress size={20} color="inherit" /> : <AnalyticsIcon />}
+            onClick={startVectorization}
+            disabled={vectorizing}
+          >
+            {vectorizing ? 'Vectorizing...' : 'Vectorize Code'}
+          </Button>
+        </Box>
+      </Box>
+
+      {project?.description && (
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Typography variant="body1">{project.description}</Typography>
+        </Paper>
+      )}
+
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={8}>
+          <Paper sx={{ p: 2, height: '100%' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">Project Files</Typography>
+              <IconButton onClick={fetchFiles} disabled={fileLoading}>
+                <RefreshIcon />
+              </IconButton>
+            </Box>
+            <Divider sx={{ mb: 2 }} />
+            {fileLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              renderFileTree(files)
             )}
-          </div>
-        )}
-        
-        {activeTab === 'features' && (
-          <div className="features-container">
-            <div className="chat-container">
-              <ChatInterface 
-                messages={messages} 
-                onSendMessage={handleFeatureRequest} 
-                status={status}
-              />
-            </div>
-            <div className="preview-container">
-              <CodePreview content={previewContent} />
-            </div>
-          </div>
-        )}
-        
-        {activeTab === 'settings' && (
-          <div className="settings-container">
-            <ProjectSettings 
-              project={project} 
-              projectId={projectId}
-            />
-          </div>
-        )}
-      </div>
-      
-      <StatusBar 
-        status={status} 
-        projectId={projectId}
-        projectName={project?.name}
-      />
-    </div>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Project Status
+              </Typography>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Created: {new Date(project?.createdAt).toLocaleDateString()}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Last Updated: {new Date(project?.updatedAt).toLocaleDateString()}
+                </Typography>
+              </Box>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle1" gutterBottom>
+                Vectorization Status
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    backgroundColor: vectorizationStatus?.status === 'completed' ? 'success.main' : 
+                                    vectorizationStatus?.status === 'processing' ? 'warning.main' : 'error.main',
+                    mr: 1
+                  }}
+                />
+                <Typography variant="body2">
+                  {vectorizationStatus?.status === 'completed' ? 'Completed' : 
+                   vectorizationStatus?.status === 'processing' ? 'In Progress' : 
+                   vectorizationStatus?.status === 'failed' ? 'Failed' : 'Not Started'}
+                </Typography>
+              </Box>
+              {vectorizationStatus?.status === 'completed' && (
+                <Button
+                  variant="outlined"
+                  startIcon={<AnalyticsIcon />}
+                  fullWidth
+                  sx={{ mt: 2 }}
+                  component={Link}
+                  to={`/projects/${projectId}/vectors`}
+                >
+                  View Vector Data
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Quick Actions
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<EditIcon />}
+                fullWidth
+                sx={{ mb: 1 }}
+                onClick={() => {
+                  const newName = prompt('Enter new project name:', project?.name);
+                  if (newName && newName !== project?.name) {
+                    projectAPI.updateProject(projectId, { name: newName })
+                      .then(() => {
+                        setProject({ ...project, name: newName });
+                        toast.success('Project name updated');
+                      })
+                      .catch(err => {
+                        console.error('Error updating project:', err);
+                        toast.error('Failed to update project name');
+                      });
+                  }
+                }}
+              >
+                Edit Project
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<CodeIcon />}
+                fullWidth
+                sx={{ mb: 1 }}
+                onClick={() => navigate(`/projects/${projectId}/analyze`)}
+              >
+                Analyze Code
+              </Button>
+              
+              {vectorizationStatus?.status === 'completed' && (
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={<GraphIcon />}
+                    fullWidth
+                    sx={{ mb: 1 }}
+                    component={Link}
+                    to={`/projects/${projectId}/function-graph`}
+                  >
+                    Function Call Graph
+                  </Button>
+                  
+                  <Button
+                    variant="outlined"
+                    startIcon={<TreeIcon />}
+                    fullWidth
+                    sx={{ mb: 1 }}
+                    component={Link}
+                    to={`/projects/${projectId}/component-graph`}
+                  >
+                    Component Relationships
+                  </Button>
+                </>
+              )}
+              
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                fullWidth
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to delete project "${project?.name}"? This action cannot be undone.`)) {
+                    projectAPI.deleteProject(projectId)
+                      .then(() => {
+                        toast.success('Project deleted successfully');
+                        navigate('/projects');
+                      })
+                      .catch(err => {
+                        console.error('Error deleting project:', err);
+                        toast.error('Failed to delete project');
+                      });
+                  }
+                }}
+              >
+                Delete Project
+              </Button>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Container>
   );
 }
 

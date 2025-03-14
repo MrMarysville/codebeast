@@ -8,9 +8,15 @@ const { Server } = require('socket.io');
 const fs = require('fs-extra');
 const morgan = require('morgan');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
+const supabase = require('./utils/supabase');
+const { protect, conditionalProtect } = require('./middleware/authMiddleware');
+
+// Import custom middleware
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+const getLoggingMiddleware = require('./middleware/loggingMiddleware');
+const { apiLimiter, authLimiter, uploadLimiter, vectorizationLimiter } = require('./middleware/rateLimitMiddleware');
 
 // Load environment variables with explicit path
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -24,14 +30,14 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseClient = createClient(supabaseUrl, supabaseKey);
 
 // Initialize express app
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [process.env.FRONTEND_URL || 'http://localhost:3001', 'http://localhost:3003'],
     methods: ['GET', 'POST']
   }
 });
@@ -43,44 +49,51 @@ app.set('trust proxy', 1);
 const uploadsDir = process.env.UPLOADS_DIR || './uploads';
 fs.ensureDirSync(uploadsDir);
 
+// Ensure logs directory exists
+const logsDir = path.join(__dirname, 'logs');
+fs.ensureDirSync(logsDir);
+
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for development
+  crossOriginEmbedderPolicy: false // Allow embedding in iframes
+}));
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [process.env.FRONTEND_URL || 'http://localhost:3001', 'http://localhost:3003'],
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again after 15 minutes'
-});
-app.use('/api/', limiter);
+// Apply logging middleware
+const loggingMiddleware = getLoggingMiddleware();
+app.use(loggingMiddleware);
 
-// Middleware
-app.use(morgan('dev'));
+// Apply rate limiting middleware
+app.use('/api/', apiLimiter);
+app.use('/api/auth', authLimiter);
+app.use('/api/files/upload', uploadLimiter);
+app.use('/api/projects/:projectId/vectorize', vectorizationLimiter);
+
+// Body parsing middleware
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // Make supabase client available in requests
 app.use((req, res, next) => {
-  req.supabase = supabase;
+  req.supabase = supabaseClient;
   next();
 });
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
-const projectRoutes = require('./routes/projectRoutes');
+const projectRoutes = require('./routes/projectRoutes');  // Keep legacy projectRoutes for now
 const fileRoutes = require('./routes/fileRoutes');
 const featureRoutes = require('./routes/featureRoutes');
 const vectorRoutes = require('./routes/vectorRoutes');
 const componentRoutes = require('./routes/componentRoutes');
-const projectUploadRoutes = require('./routes/project.routes');
+const projectRouter = require('./routes/project.routes');  // Use new project.routes.js
+const fileRouter = require('./routes/file.routes');  // Use new file.routes.js
 const projectController = require('./controllers/project.controller');
-
-// Auth middleware
-const { protect, conditionalProtect } = require('./middleware/authMiddleware');
 
 // ====== SYSTEM ROUTES ======
 // Health check endpoint
@@ -100,15 +113,16 @@ app.get('/api/system/status', (req, res) => {
   });
 });
 
-// Register upload routes without authentication
-app.use('/api/project', projectUploadRoutes);
+// Register the new project and file routes
+app.use('/api/v2/project', projectRouter);
+app.use('/api/v2/file', fileRouter);
 
 // ====== DIRECT PROJECT ACCESS ROUTES (NO /api PREFIX) ======
 // These routes allow for direct access to projects without authentication
 // Used for local project access in the frontend
 
 // Route for direct project access
-app.get('/projects/:projectId', conditionalProtect, (req, res) => {
+app.get('/projects/:projectId', conditionalProtect, (req, res, next) => {
   // Redirect to project info
   const projectId = req.params.projectId;
   console.log(`Direct project access: ${projectId}`);
@@ -116,50 +130,44 @@ app.get('/projects/:projectId', conditionalProtect, (req, res) => {
   // Check if project exists
   const projectDir = path.join(process.env.UPLOADS_DIR || './uploads', projectId);
   if (!fs.existsSync(projectDir)) {
-    return res.status(404).json({ 
-      success: false,
-      error: 'Project not found' 
-    });
+    return next(new Error('Project not found'));
   }
   
   // For now, redirect to the project info endpoint
-  projectController.getProjectById(req, res);
+  projectController.getProjectById(req, res, next);
 });
 
 // Route for project info
-app.get('/projects/:projectId/info', conditionalProtect, (req, res) => {
+app.get('/projects/:projectId/info', conditionalProtect, (req, res, next) => {
   const projectId = req.params.projectId;
   console.log(`Direct project info access: ${projectId}`);
   
   // Check if project exists
   const projectDir = path.join(process.env.UPLOADS_DIR || './uploads', projectId);
   if (!fs.existsSync(projectDir)) {
-    return res.status(404).json({ 
-      success: false,
-      error: 'Project not found' 
-    });
+    return next(new Error('Project not found'));
   }
   
   req.query.saveLocally = 'true'; // Force local access
-  projectController.getProjectById(req, res);
+  projectController.getProjectById(req, res, next);
 });
 
 // Route for project file tree
-app.get('/projects/:projectId/filetree', conditionalProtect, (req, res) => {
+app.get('/projects/:projectId/filetree', conditionalProtect, (req, res, next) => {
   console.log(`Direct filetree access: ${req.params.projectId}`);
   req.query.saveLocally = 'true'; // Force local access
-  projectController.getProjectFileTree(req, res);
+  projectController.getProjectFileTree(req, res, next);
 });
 
 // Route for project file content
-app.get('/projects/:projectId/file/:filePath(*)', conditionalProtect, (req, res) => {
+app.get('/projects/:projectId/file/:filePath(*)', conditionalProtect, (req, res, next) => {
   console.log(`Direct file access: ${req.params.projectId}/${req.params.filePath}`);
   req.query.saveLocally = 'true'; // Force local access
-  projectController.getFileContent(req, res);
+  projectController.getFileContent(req, res, next);
 });
 
 // Route for vectorization status (to fix 404 error)
-app.get('/projects/:projectId/vectorization-status', conditionalProtect, (req, res) => {
+app.get('/projects/:projectId/vectorization-status', conditionalProtect, (req, res, next) => {
   console.log(`Vectorization status access: ${req.params.projectId}`);
   req.query.saveLocally = 'true'; // Force local access
   
@@ -179,11 +187,7 @@ app.get('/projects/:projectId/vectorization-status', conditionalProtect, (req, r
       });
     } catch (err) {
       console.error('Error reading vectorization status:', err);
-      return res.status(200).json({
-        success: true,
-        status: 'unknown',
-        error: err.message
-      });
+      return next(err);
     }
   } else {
     // If status file doesn't exist, assume not started
@@ -195,92 +199,96 @@ app.get('/projects/:projectId/vectorization-status', conditionalProtect, (req, r
 });
 
 // Route for project/projects/:projectId/info (alternate path the frontend tries)
-app.get('/project/projects/:projectId/info', (req, res) => {
+app.get('/project/projects/:projectId/info', (req, res, next) => {
   console.log(`Alternative project info access: ${req.params.projectId}`);
   req.params.projectId = req.params.projectId; // Keep the same
   req.query.saveLocally = 'true'; // Force local access
-  projectController.getProjectById(req, res);
+  projectController.getProjectById(req, res, next);
 });
 
 // Route for project/filetree/:projectId (alternate path the frontend tries)
-app.get('/project/filetree/:projectId', (req, res) => {
+app.get('/project/filetree/:projectId', (req, res, next) => {
   console.log(`Alternative filetree access: ${req.params.projectId}`);
   req.query.saveLocally = 'true'; // Force local access
-  projectController.getProjectFileTree(req, res);
+  projectController.getProjectFileTree(req, res, next);
 });
 
 // ====== NON-AUTHENTICATED API ACCESS ======
 // Direct API access for projects without authentication
-app.get('/api/projects/:projectId', conditionalProtect, (req, res) => {
+app.get('/api/projects/:projectId', conditionalProtect, (req, res, next) => {
   console.log(`Direct API project access: ${req.params.projectId}`);
   
   // Check if this is a local project
   const projectDir = path.join(process.env.UPLOADS_DIR || './uploads', req.params.projectId);
   if (fs.existsSync(projectDir)) {
     req.query.saveLocally = 'true';
-    return projectController.getProjectById(req, res);
+    return projectController.getProjectById(req, res, next);
   }
   
   // If not local and no auth, return 401
   if (!req.user && !req.query.saveLocally) {
-    return res.status(401).json({ 
-      success: false,
-      error: 'Authentication required' 
-    });
+    return next(new Error('Authentication required'));
   }
   
   // Otherwise, standard behavior
-  projectController.getProjectById(req, res);
+  projectController.getProjectById(req, res, next);
 });
 
 // Direct API access for project file list
-app.get('/api/projects/:projectId/files', conditionalProtect, (req, res) => {
+app.get('/api/projects/:projectId/files', conditionalProtect, (req, res, next) => {
   console.log(`Direct API files list access: ${req.params.projectId}`);
   req.query.saveLocally = 'true'; 
-  projectController.getProjectFiles(req, res);
+  projectController.getProjectFiles(req, res, next);
 });
 
 // Direct API access for file content
-app.get('/api/projects/:projectId/file/:filePath(*)', conditionalProtect, (req, res) => {
+app.get('/api/projects/:projectId/file/:filePath(*)', conditionalProtect, (req, res, next) => {
   console.log(`API file content access: ${req.params.projectId}/${req.params.filePath}`);
   req.query.saveLocally = 'true';
-  projectController.getFileContent(req, res);
+  projectController.getFileContent(req, res, next);
+});
+
+// Direct API access for all projects (for development)
+app.get('/api/projects', conditionalProtect, (req, res, next) => {
+  console.log(`Direct API all projects access`);
+  req.query.saveLocally = 'true';
+  projectController.getAllProjects(req, res, next);
 });
 
 // ====== VECTOR API ROUTES WITH CONDITIONAL AUTHENTICATION ======
 
 // Register specific vector routes with conditional authentication
-app.get('/api/projects/:projectId/vectors/status', conditionalProtect, (req, res) => {
+app.get('/api/projects/:projectId/vectors/status', conditionalProtect, (req, res, next) => {
   // Add saveLocally=true query param to bypass auth
   req.query.saveLocally = 'true';
-  projectController.getVectorizationStatus(req, res);
+  projectController.getVectorizationStatus(req, res, next);
 });
 
-app.get('/api/projects/:projectId/vectors/data', conditionalProtect, (req, res) => {
+app.get('/api/projects/:projectId/vectors/data', conditionalProtect, (req, res, next) => {
   // Add saveLocally=true query param to bypass auth
   req.query.saveLocally = 'true';
-  projectController.getVectorData(req, res);
+  projectController.getVectorData(req, res, next);
 });
 
-app.get('/api/projects/:projectId/vectors/languages', conditionalProtect, (req, res) => {
+app.get('/api/projects/:projectId/vectors/languages', conditionalProtect, (req, res, next) => {
   // Add saveLocally=true query param to bypass auth
   req.query.saveLocally = 'true';
-  projectController.getVectorLanguages(req, res);
+  projectController.getVectorLanguages(req, res, next);
 });
 
 // Direct endpoint without /api prefix
-app.get('/projects/:projectId/vectors/languages', conditionalProtect, (req, res) => {
+app.get('/projects/:projectId/vectors/languages', conditionalProtect, (req, res, next) => {
   console.log(`Direct vector languages access: ${req.params.projectId}`);
   req.query.saveLocally = 'true';
-  projectController.getVectorLanguages(req, res);
+  projectController.getVectorLanguages(req, res, next);
 });
 
-app.post('/api/projects/:projectId/vectorize', conditionalProtect, (req, res) => {
+app.post('/api/projects/:projectId/vectorize', conditionalProtect, (req, res, next) => {
   // Add saveLocally=true to body to bypass auth if not already present
   if (!req.body.saveLocally) {
     req.body.saveLocally = 'true';
   }
-  projectController.startVectorization(req, res);
+  projectController.startVectorization(req, res, next);
 });
 
 // Register routes with authentication
@@ -316,16 +324,9 @@ io.on('connection', (socket) => {
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'http://localhost:5001';
 console.log(`Using code executor at: ${EXECUTOR_URL}`);
 
-// Handle 404
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
-
-// Handle errors
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Server error', message: err.message });
-});
+// Apply 404 and error handling middleware
+app.use(notFound);
+app.use(errorHandler);
 
 // Configure global console logging
 const originalConsoleLog = console.log;
@@ -337,15 +338,85 @@ console.log = function() {
 // Import the improved Python checker
 const { checkPython, isPythonAvailable } = require('./utils/pythonChecker');
 
-// Start the server
+// Start the server with error handling
 const PORT = process.env.PORT || 5001;
-httpServer.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  
-  // Check for Python availability - now just a mock check that always returns true
-  await checkPython();
-  
-  // No need for a duplicate system status endpoint
-});
+
+// Function to check if a port is available
+function isPortAvailable(port) {
+  return new Promise((resolve, reject) => {
+    const server = require('net').createServer();
+    
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        // Port is not available
+        resolve(false);
+      } else {
+        reject(err);
+      }
+    });
+    
+    server.once('listening', () => {
+      // Port is available, close the server
+      server.close(() => {
+        resolve(true);
+      });
+    });
+    
+    server.listen(port);
+  });
+}
+
+// Try to start the server 
+(async function startServer() {
+  try {
+    // Check if the port is available
+    const portAvailable = await isPortAvailable(PORT);
+    
+    if (!portAvailable) {
+      console.log(`Port ${PORT} is already in use. Attempting to close existing connections...`);
+      
+      // Try to kill the process using the port
+      try {
+        const { execSync } = require('child_process');
+        if (process.platform === 'win32') {
+          execSync(`npx kill-port ${PORT}`);
+        } else {
+          execSync(`lsof -ti:${PORT} | xargs kill -9`);
+        }
+        
+        console.log(`Successfully freed port ${PORT}`);
+      } catch (killError) {
+        console.error(`Failed to free port ${PORT}:`, killError.message);
+        console.log(`Please manually close the application using port ${PORT} and try again.`);
+        process.exit(1);
+      }
+    }
+    
+    // Start the server
+    httpServer.listen(PORT, async () => {
+      console.log(`[${new Date().toISOString()}] Server running on port ${PORT}`);
+      
+      // Check for Python availability
+      await checkPython();
+      
+      // Log code executor URL
+      console.log(`Using code executor at: http://localhost:${PORT}`);
+    });
+    
+    // Handle server errors
+    httpServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is still in use. Please restart manually with a different port.`);
+      } else {
+        console.error('Server error:', err);
+      }
+      process.exit(1);
+    });
+    
+  } catch (err) {
+    console.error('Error starting server:', err);
+    process.exit(1);
+  }
+})();
 
 module.exports = app;

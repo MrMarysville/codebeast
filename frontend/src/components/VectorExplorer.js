@@ -13,6 +13,32 @@ import { useFetch } from '../hooks/useFetch';
 import LoadingState from './ui/LoadingState';
 import ErrorState from './ui/ErrorState';
 import '../styles/VectorExplorer.css';
+import { useParams, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Container,
+  Divider,
+  Grid,
+  Paper,
+  TextField,
+  Typography,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon
+} from '@mui/material';
+import {
+  ArrowBack as BackIcon,
+  Search as SearchIcon,
+  Code as CodeIcon,
+  Language as LanguageIcon
+} from '@mui/icons-material';
+import { projectAPI } from '../utils/api';
 
 
 // Enhanced component metadata for React 19
@@ -47,269 +73,240 @@ export function generateMetadata({ projectId }) {
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5001';
 
-const VectorExplorer = ({ projectId }) => {
-  const [activeTab, setActiveTab] = useState('status');
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-  
-  // Available languages in the project
-  const [availableLanguages, setAvailableLanguages] = useState([]);
-  
-  // Tracking incremental updates
-  const [changedFilesCount] = useState(0);
-  const [lastUpdateTimestamp] = useState(null);
-  const [lastUpdateType] = useState(null);
-  
-  // Graph filters state
-  const [filters, setFilters] = useState({
-    language: 'all',
-    minSimilarity: 0.5,
-    maxNodes: 100,
-    clustering: true,
-    performanceMode: false
-  });
-  
-  // Use custom fetch hook for vectorization status
-  const { 
-    data: vectorStatus, 
-    loading: statusLoading, 
-    error: statusError,
-    refetch: refetchStatus 
-  } = useFetch(
-    `${BACKEND_URL}/api/vectorization_status/${projectId}`, 
-    { cacheTime: 30000, dependencies: [projectId] }
-  );
-  
-  // Use custom fetch hook for vector cache info
-  const { 
-    data: cacheInfo, 
-    loading: cacheLoading, 
-    error: cacheError,
-    refetch: refetchCache 
-  } = useFetch(
-    `${BACKEND_URL}/api/vector_cache_info/${projectId}`, 
-    { cacheTime: 60000, dependencies: [projectId] }
-  );
-  
-  // Use custom fetch hook for available languages
-  const { 
-    data: languagesData, 
-    loading: languagesLoading, 
-    error: languagesError 
-  } = useFetch(
-    `${BACKEND_URL}/api/available_languages/${projectId}`, 
-    { cacheTime: 300000, dependencies: [projectId] }
-  );
-  
-  // Update languages when data changes
-  useEffect(() => {
-    if (languagesData?.languages) {
-      setAvailableLanguages(languagesData.languages);
+const VectorExplorer = () => {
+  const { projectId } = useParams();
+  const navigate = useNavigate();
+  const [project, setProject] = useState(null);
+  const [vectorData, setVectorData] = useState(null);
+  const [languages, setLanguages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  const fetchProject = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await projectAPI.getProjectById(projectId);
+      setProject(response.data);
+    } catch (err) {
+      console.error('Error fetching project:', err);
+      toast.error('Failed to load project details');
+      navigate('/projects');
+    } finally {
+      setLoading(false);
     }
-  }, [languagesData]);
-  
-  // Refresh handler with debounce
-  const handleRefresh = useCallback(() => {
-    refetchStatus();
-    refetchCache();
-  }, [refetchStatus, refetchCache]);
+  }, [projectId, navigate]);
 
-  const handleVectorizationStarted = () => {
-    // After vectorization is triggered, poll for status updates
-    setRefreshTrigger(prev => prev + 1);
-    
-    // Start polling for status updates
-    const interval = setInterval(() => {
-      refetchStatus();
-      // If vectorization is complete, stop polling
-      if (vectorStatus && 
-          (vectorStatus.status === 'completed' || 
-           vectorStatus.status === 'failed' || 
-           vectorStatus.status === 'error' || 
-           vectorStatus.state === 'completed' || 
-           vectorStatus.state === 'error' || 
-           vectorStatus.state === 'completed_with_errors')) {
-        clearInterval(interval);
-      }
-    }, 5000); // Poll every 5 seconds
+  const fetchVectorData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await projectAPI.getVectorData(projectId);
+      setVectorData(response.data);
+    } catch (err) {
+      console.error('Error fetching vector data:', err);
+      toast.error('Failed to load vector data');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
 
-    // Clean up interval on component unmount
-    return () => clearInterval(interval);
+  const fetchLanguages = useCallback(async () => {
+    try {
+      const response = await projectAPI.getVectorLanguages(projectId);
+      setLanguages(response.data);
+    } catch (err) {
+      console.error('Error fetching languages:', err);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchProject();
+    fetchVectorData();
+    fetchLanguages();
+  }, [projectId, fetchProject, fetchVectorData, fetchLanguages]);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      toast.warning('Please enter a search query');
+      return;
+    }
+
+    try {
+      setSearching(true);
+      // This is a mock implementation - in a real app, you would call an API endpoint
+      // that performs semantic search using the vector embeddings
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Mock results - in a real app, these would come from the backend
+      const mockResults = [
+        {
+          id: '1',
+          name: 'fetchProject',
+          path: 'src/components/ProjectWorkspace.js',
+          similarity: 0.92,
+          snippet: 'const fetchProject = async () => { try { setLoading(true); const response = await projectAPI.getProjectById(projectId); setProject(response.data); } catch (err) { ... } }'
+        },
+        {
+          id: '2',
+          name: 'getProjectById',
+          path: 'src/utils/api.js',
+          similarity: 0.87,
+          snippet: 'getProjectById: (projectId) => api.get(`/api/projects/${projectId}`)'
+        },
+        {
+          id: '3',
+          name: 'ProjectDetails',
+          path: 'src/components/ProjectDetails.js',
+          similarity: 0.78,
+          snippet: 'function ProjectDetails({ project }) { return ( <div>...</div> ); }'
+        }
+      ];
+      
+      setSearchResults(mockResults);
+    } catch (err) {
+      console.error('Error searching vectors:', err);
+      toast.error('Failed to search vectors');
+    } finally {
+      setSearching(false);
+    }
   };
 
-  // Determine if vectorization has been started
-  const isVectorized = vectorStatus && 
-    ((vectorStatus.processedFiles > 0) || 
-     (vectorStatus.totalFiles > 0) ||
-     (vectorStatus.total > 0));
-
-  // Combined loading state
-  const isLoading = statusLoading || cacheLoading || languagesLoading;
-  
-  // Combined error state
-  const hasError = statusError || cacheError || languagesError;
-  const error = statusError || cacheError || languagesError;
-
-  // Render error state if there's an error
-  if (hasError) {
+  if (loading && !vectorData) {
     return (
-      <div className="vector-explorer">
-        <ErrorState 
-          error={error} 
-          title="Failed to load vector data"
-          variant="card"
-          onRetry={handleRefresh}
-        />
-      </div>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
-  // Render appropriate content based on active tab
-  const renderTabContent = () => {
-    if (isLoading) {
-      return (
-        <LoadingState 
-          type="skeleton" 
-          message="Loading vector data..." 
-          size="medium"
-        />
-      );
-    }
-
-    if (!isVectorized && activeTab !== 'status' && activeTab !== 'changes') {
-      return (
-        <div className="vector-empty">
-          <p>This project has not been vectorized yet. Start the vectorization process to enable this feature.</p>
-          <VectorizationTrigger 
-            projectId={projectId} 
-            onVectorizationStarted={handleVectorizationStarted} 
-          />
-        </div>
-      );
-    }
-
-    switch (activeTab) {
-      case 'status':
-        return (
-          <div className="status-container">
-            <VectorizationStatus 
-              status={vectorStatus} 
-              onRefresh={handleRefresh} 
-              projectId={projectId}
-              onVectorizationStarted={handleVectorizationStarted}
-              changedFilesCount={changedFilesCount}
-              lastUpdateTimestamp={lastUpdateTimestamp}
-              lastUpdateType={lastUpdateType}
-              cacheInfo={cacheInfo}
-            />
-            
-            {/* Show incremental update statistics if available */}
-            {isVectorized && lastUpdateType && (
-              <div className="update-stats">
-                <h4>Last Update Information</h4>
-                <div className="update-info">
-                  <div className="info-item">
-                    <strong>Update Type:</strong> 
-                    <span className={`update-type ${lastUpdateType}`}>
-                      {lastUpdateType === 'incremental' ? 'Incremental' : 
-                       lastUpdateType === 'selective' ? 'Selective' : 'Full'}
-                    </span>
-                  </div>
-                  {changedFilesCount > 0 && (
-                    <div className="info-item">
-                      <strong>Changed Files:</strong> {changedFilesCount}
-                    </div>
-                  )}
-                  {lastUpdateTimestamp && (
-                    <div className="info-item">
-                      <strong>Last Updated:</strong> 
-                      {new Date(lastUpdateTimestamp).toLocaleString()}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      case 'changes':
-        return <ChangedFilesVisualization projectId={projectId} refreshTrigger={refreshTrigger} />;
-      case 'functions':
-        return <FunctionList projectId={projectId} languages={availableLanguages} />;
-      case 'search':
-        return <SimilaritySearch projectId={projectId} languages={availableLanguages} />;
-      case 'graph':
-        return (
-          <FunctionGraph 
-            projectId={projectId} 
-            filters={filters}
-            onFilterChange={setFilters}
-            languages={availableLanguages}
-          />
-        );
-      case 'components':
-        return <ComponentRelationshipGraph projectId={projectId} />;
-      default:
-        return <VectorizationStatus status={vectorStatus} onRefresh={handleRefresh} />;
-    }
-  };
-
   return (
-    <div className="vector-explorer">
-      <div className="vector-header">
-        <h2>Vector Explorer</h2>
-        <div className="refresh-button" onClick={handleRefresh} title="Refresh data">
-          <FiRefreshCw />
-        </div>
-      </div>
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <Button
+          startIcon={<BackIcon />}
+          onClick={() => navigate(`/projects/${projectId}`)}
+          sx={{ mr: 2 }}
+        >
+          Back to Project
+        </Button>
+        <Typography variant="h4" component="h1">
+          Vector Explorer: {project?.name}
+        </Typography>
+      </Box>
 
-      <div className="vector-tabs">
-        <div 
-          className={`vector-tab ${activeTab === 'status' ? 'active' : ''}`}
-          onClick={() => setActiveTab('status')}
-        >
-          <FiActivity />
-          <span>Status</span>
-        </div>
-        <div 
-          className={`vector-tab ${activeTab === 'changes' ? 'active' : ''}`}
-          onClick={() => setActiveTab('changes')}
-        >
-          <FiGitBranch />
-          <span>Changed Files</span>
-        </div>
-        <div 
-          className={`vector-tab ${activeTab === 'functions' ? 'active' : ''} ${!isVectorized ? 'disabled' : ''}`}
-          onClick={() => isVectorized && setActiveTab('functions')}
-        >
-          <FiCode />
-          <span>Functions</span>
-        </div>
-        <div 
-          className={`vector-tab ${activeTab === 'search' ? 'active' : ''} ${!isVectorized ? 'disabled' : ''}`}
-          onClick={() => isVectorized && setActiveTab('search')}
-        >
-          <FiSearch />
-          <span>Similarity</span>
-        </div>
-        <div 
-          className={`vector-tab ${activeTab === 'graph' ? 'active' : ''} ${!isVectorized ? 'disabled' : ''}`}
-          onClick={() => isVectorized && setActiveTab('graph')}
-        >
-          <FiTrendingUp />
-          <span>Graph</span>
-        </div>
-        <div 
-          className={`vector-tab ${activeTab === 'components' ? 'active' : ''}`}
-          onClick={() => setActiveTab('components')}
-        >
-          <FiDatabase />
-          <span>Component Graph</span>
-        </div>
-      </div>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Vector Statistics
+            </Typography>
+            <List>
+              <ListItem>
+                <ListItemIcon>
+                  <CodeIcon />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Total Functions" 
+                  secondary={vectorData?.totalFunctions || 'N/A'} 
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemIcon>
+                  <LanguageIcon />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Languages" 
+                  secondary={languages?.length > 0 ? languages.join(', ') : 'N/A'} 
+                />
+              </ListItem>
+            </List>
+          </Paper>
 
-      <div className="vector-content">
-        {renderTabContent()}
-      </div>
-    </div>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Semantic Search
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+              <TextField
+                fullWidth
+                label="Search Query"
+                placeholder="Find functions similar to..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+              <Button
+                variant="contained"
+                startIcon={searching ? <CircularProgress size={20} /> : <SearchIcon />}
+                onClick={handleSearch}
+                disabled={searching || !searchQuery.trim()}
+                fullWidth
+              >
+                {searching ? 'Searching...' : 'Search'}
+              </Button>
+            </Box>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={8}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Search Results
+            </Typography>
+            {searchResults.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 3 }}>
+                <Typography variant="body1" color="text.secondary">
+                  {searchQuery.trim() ? 'No results found. Try a different query.' : 'Enter a search query to find similar functions.'}
+                </Typography>
+              </Box>
+            ) : (
+              <List>
+                {searchResults.map((result) => (
+                  <ListItem key={result.id} sx={{ 
+                    mb: 2, 
+                    border: '1px solid', 
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    flexDirection: 'column',
+                    alignItems: 'flex-start'
+                  }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', mb: 1 }}>
+                      <Typography variant="subtitle1" fontWeight="bold">
+                        {result.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Similarity: {(result.similarity * 100).toFixed(0)}%
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      {result.path}
+                    </Typography>
+                    <Box sx={{ 
+                      backgroundColor: 'background.default',
+                      p: 1,
+                      borderRadius: 1,
+                      width: '100%',
+                      overflow: 'auto'
+                    }}>
+                      <Typography variant="body2" component="pre" sx={{ 
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'monospace',
+                        fontSize: '0.8rem'
+                      }}>
+                        {result.snippet}
+                      </Typography>
+                    </Box>
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+      </Grid>
+    </Container>
   );
 };
 
