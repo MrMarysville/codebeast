@@ -484,4 +484,40 @@ We've implemented several key improvements to enhance the user experience of the
 - The system now uses a fallback strategy when vectorization fails, trying multiple methods in sequence.
 - We've prioritized providing clear feedback to users over silent failures.
 - The vectorization process is designed to be interruptible and resumable.
-- The UI is being enhanced gradually to provide a more intuitive experience. 
+- The UI is being enhanced gradually to provide a more intuitive experience.
+
+## Planned UI Framework Migration
+
+We're planning to migrate from Material-UI to Shadcn UI to enhance the application's frontend development experience and performance. This strategic change will bring several benefits:
+
+### Migration Motivation
+- **Developer Experience**: Shadcn UI provides a more modern development approach with component copying rather than importing, giving us full control over the UI components
+- **Performance**: Being built on Tailwind CSS, Shadcn UI offers better performance characteristics than Material-UI
+- **Customization**: Shadcn's approach allows for easier customization and adaptation to our specific needs
+- **Accessibility**: Shadcn UI components are built with accessibility in mind from the ground up
+- **Growing Ecosystem**: The Shadcn + Tailwind CSS ecosystem is rapidly growing and has strong community support
+
+### Migration Strategy
+We'll approach this migration incrementally to ensure continuous functionality:
+
+1. **Initial Setup Phase**
+   - Set up Tailwind CSS in the project
+   - Install and configure Shadcn UI
+   - Develop a component migration plan
+
+2. **Parallel Component Structure**
+   - Create Shadcn versions of our most commonly used components
+   - Implement wrapper components to facilitate gradual migration
+   - Test components for compatibility and performance
+
+3. **Incremental Replacement**
+   - Replace components one screen at a time, starting with simpler pages
+   - Keep both UI libraries during the transition period
+   - Update global styling and theme variables last
+
+4. **Finalization**
+   - Remove Material-UI dependencies once migration is complete
+   - Create a standardized design system based on Shadcn UI
+   - Document the new component library
+
+This migration has been added to our medium-term roadmap (1-2 months) to begin the transition, with full completion expected in the long-term roadmap (3+ months). 

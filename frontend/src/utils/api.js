@@ -66,16 +66,16 @@ export const authAPI = {
 export const projectAPI = {
   getAllProjects: () => api.get('/api/projects'),
   getProjectById: (projectId) => api.get(`/api/projects/${projectId}`),
-  createProject: (projectData) => api.post('/api/v2/project', projectData),
-  updateProject: (projectId, projectData) => api.put(`/api/v2/project/${projectId}`, projectData),
-  deleteProject: (projectId) => api.delete(`/api/v2/project/${projectId}`),
+  createProject: (projectData) => api.post('/api/projects', projectData),
+  updateProject: (projectId, projectData) => api.put(`/api/projects/${projectId}`, projectData),
+  deleteProject: (projectId) => api.delete(`/api/projects/${projectId}`),
   
   // Project file operations
   getProjectFiles: (projectId) => api.get(`/api/projects/${projectId}/files`),
   getFileContent: (projectId, filePath) => api.get(`/api/projects/${projectId}/file/${filePath}`),
   updateFileContent: (projectId, filePath, content) => 
-    api.put(`/api/v2/project/${projectId}/files/${filePath}`, { content }),
-  deleteFile: (projectId, filePath) => api.delete(`/api/v2/project/${projectId}/files/${filePath}`),
+    api.put(`/api/projects/${projectId}/files/${filePath}`, { content }),
+  deleteFile: (projectId, filePath) => api.delete(`/api/projects/${projectId}/files/${filePath}`),
   
   // Project analysis
   analyzeProject: (projectId) => api.post(`/api/v2/project/${projectId}/analyze`),
@@ -86,46 +86,98 @@ export const projectAPI = {
   getVectorizationStatus: (projectId) => api.get(`/api/projects/${projectId}/vectors/status`),
   getVectorData: (projectId) => api.get(`/api/projects/${projectId}/vectors/data`),
   getVectorLanguages: (projectId) => api.get(`/api/projects/${projectId}/vectors/languages`),
+  
+  // File upload to project
+  uploadFiles: (projectId, files, onProgress, options = {}) => {
+    const formData = new FormData();
+    
+    // Add options to the request
+    if (options) {
+      Object.keys(options).forEach(key => {
+        if (key !== 'projectId') { // Don't add projectId to formData
+          formData.append(key, options[key]);
+        }
+      });
+    }
+    
+    if (Array.isArray(files)) {
+      // For multiple files, upload them one by one
+      const uploadPromises = Array.from(files).map(file => {
+        const fileFormData = new FormData();
+        fileFormData.append('file', file);
+        
+        // Add options to each file upload
+        if (options) {
+          Object.keys(options).forEach(key => {
+            if (key !== 'projectId') { // Don't add projectId to formData
+              fileFormData.append(key, options[key]);
+            }
+          });
+        }
+        
+        return fileAPI.uploadFile(projectId, fileFormData, null, onProgress);
+      });
+      
+      // Return a promise that resolves when all uploads are complete
+      return Promise.all(uploadPromises);
+    } else {
+      // Single file upload
+      formData.append('file', files);
+      return fileAPI.uploadFile(projectId, formData, null, onProgress);
+    }
+  }
 };
 
 // File upload endpoints
 export const fileAPI = {
-  uploadFile: (projectId, formData, filePath) => {
+  uploadFile: (projectId, formData, filePath, onProgress) => {
     const config = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      onUploadProgress: onProgress ? (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percentCompleted);
+      } : undefined
     };
     
+    // Check if saveLocally is in the formData
+    let url = `/api/files/upload/${projectId}`;
+    
+    // Add filePath as a query parameter if provided
     if (filePath) {
-      return api.post(`/api/v2/file/upload/${projectId}?filePath=${encodeURIComponent(filePath)}`, formData, config);
+      url += `?filePath=${encodeURIComponent(filePath)}`;
     }
     
-    return api.post(`/api/v2/file/upload/${projectId}`, formData, config);
+    return api.post(url, formData, config);
   },
   
-  uploadZip: (projectId, formData, extractPath) => {
+  uploadZip: (projectId, formData, extractPath, onProgress) => {
     const config = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      onUploadProgress: onProgress ? (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percentCompleted);
+      } : undefined
     };
     
     if (extractPath) {
-      return api.post(`/api/v2/file/upload-zip/${projectId}?extractPath=${encodeURIComponent(extractPath)}`, formData, config);
+      return api.post(`/api/files/upload-zip/${projectId}?extractPath=${encodeURIComponent(extractPath)}`, formData, config);
     }
     
-    return api.post(`/api/v2/file/upload-zip/${projectId}`, formData, config);
+    return api.post(`/api/files/upload-zip/${projectId}`, formData, config);
   },
   
   downloadFile: (projectId, filePath) => {
-    return api.get(`/api/v2/file/download/${projectId}/${filePath}`, {
+    return api.get(`/api/files/download/${projectId}/${filePath}`, {
       responseType: 'blob',
     });
   },
   
   createDirectory: (projectId, dirPath) => {
-    return api.post(`/api/v2/file/mkdir/${projectId}`, { dirPath });
+    return api.post(`/api/files/mkdir/${projectId}`, { dirPath });
   },
 };
 

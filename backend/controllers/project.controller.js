@@ -36,37 +36,214 @@ exports.createProject = asyncHandler(async (req, res) => {
 
 // Get all projects
 exports.getAllProjects = asyncHandler(async (req, res) => {
-  const { data, error } = await supabase
-    .from('projects')
-    .select('*')
-    .order('updated_at', { ascending: false });
+  // Check if we're using local mode (saveLocally is true)
+  if (req.query.saveLocally === 'true') {
+    try {
+      // Read projects from local projects.json
+      const uploadsDir = process.env.UPLOADS_DIR || './uploads';
+      const projectsFile = path.join(uploadsDir, 'projects.json');
+      
+      // If projects.json doesn't exist, scan the uploads directory for folders
+      if (!fs.existsSync(projectsFile)) {
+        console.log('projects.json not found, scanning uploads directory');
+        
+        // Create projects.json with empty projects array
+        fs.writeFileSync(projectsFile, JSON.stringify({ projects: [] }, null, 2));
+        
+        // Get all directories in uploads folder
+        const dirs = fs.readdirSync(uploadsDir).filter(item => {
+          const itemPath = path.join(uploadsDir, item);
+          return fs.statSync(itemPath).isDirectory() && item !== 'vectors';
+        });
+        
+        // Create project entries for each directory
+        const projects = [];
+        for (const dir of dirs) {
+          const projectId = dir;
+          const projectDir = path.join(uploadsDir, dir);
+          
+          // Check if the directory contains any files
+          const files = fs.readdirSync(projectDir);
+          if (files.length === 0) continue; // Skip empty directories
+          
+          // Try to get project info from README.md if it exists
+          let name = dir;
+          let description = `Project found in directory ${dir}`;
+          
+          const readmePath = path.join(projectDir, 'README.md');
+          if (fs.existsSync(readmePath)) {
+            const readmeContent = fs.readFileSync(readmePath, 'utf8');
+            const titleMatch = readmeContent.match(/^#\s+(.+)$/m);
+            if (titleMatch && titleMatch[1]) {
+              name = titleMatch[1].trim();
+            }
+            
+            const descMatch = readmeContent.match(/^#.*\n+([^\n#]+)/m);
+            if (descMatch && descMatch[1]) {
+              description = descMatch[1].trim();
+            }
+          }
+          
+          projects.push({
+            id: projectId,
+            name: name,
+            description: description,
+            status: 'ready',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            user_id: '00000000-0000-0000-0000-000000000000',
+            isLocal: true
+          });
+        }
+        
+        // Save projects to projects.json
+        fs.writeFileSync(projectsFile, JSON.stringify({ projects }, null, 2));
+        
+        // Return projects
+        return res.json(projects);
+      }
+      
+      // Read projects from projects.json
+      const projectsData = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+      return res.json(projectsData.projects || []);
+    } catch (error) {
+      console.error('Error loading local projects:', error);
+      return res.json([]);
+    }
+  } else {
+    // Get projects from Supabase
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('updated_at', { ascending: false });
 
-  if (error) {
-    throw new ApiError(`Failed to fetch projects: ${error.message}`, 500);
+    if (error) {
+      throw new ApiError(`Failed to fetch projects: ${error.message}`, 500);
+    }
+
+    res.json(data);
   }
-
-  res.json(data);
 });
 
 // Get project by ID
 exports.getProjectById = asyncHandler(async (req, res) => {
-    const { projectId } = req.params;
+  const { projectId } = req.params;
 
+  // Check if we're using local mode (saveLocally is true)
+  if (req.query.saveLocally === 'true') {
+    try {
+      // Check if project directory exists
+      const uploadsDir = process.env.UPLOADS_DIR || './uploads';
+      const projectDir = path.join(uploadsDir, projectId);
+      
+      if (!fs.existsSync(projectDir)) {
+        throw new ApiError('Project not found', 404);
+      }
+      
+      // Check if project is in projects.json
+      const projectsFile = path.join(uploadsDir, 'projects.json');
+      let projectData;
+      
+      if (fs.existsSync(projectsFile)) {
+        const projectsData = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+        projectData = projectsData.projects.find(p => p.id === projectId);
+      }
+      
+      // If project is not in projects.json, create an entry
+      if (!projectData) {
+        // Get project info from README.md if it exists
+        let name = projectId;
+        let description = `Project found in directory ${projectId}`;
+        
+        const readmePath = path.join(projectDir, 'README.md');
+        if (fs.existsSync(readmePath)) {
+          const readmeContent = fs.readFileSync(readmePath, 'utf8');
+          const titleMatch = readmeContent.match(/^#\s+(.+)$/m);
+          if (titleMatch && titleMatch[1]) {
+            name = titleMatch[1].trim();
+          }
+          
+          const descMatch = readmeContent.match(/^#.*\n+([^\n#]+)/m);
+          if (descMatch && descMatch[1]) {
+            description = descMatch[1].trim();
+          }
+        }
+        
+        projectData = {
+          id: projectId,
+          name: name,
+          description: description,
+          status: 'ready',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          user_id: '00000000-0000-0000-0000-000000000000',
+          isLocal: true
+        };
+        
+        // Add project to projects.json
+        if (fs.existsSync(projectsFile)) {
+          const projectsData = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+          projectsData.projects.push(projectData);
+          fs.writeFileSync(projectsFile, JSON.stringify(projectsData, null, 2));
+        } else {
+          fs.writeFileSync(projectsFile, JSON.stringify({ projects: [projectData] }, null, 2));
+        }
+      }
+      
+      // Get files count
+      const getFileCount = (dir) => {
+        let count = 0;
+        const items = fs.readdirSync(dir);
+        
+        for (const item of items) {
+          if (item.startsWith('.')) continue;
+          
+          const itemPath = path.join(dir, item);
+          const stat = fs.statSync(itemPath);
+          
+          if (stat.isDirectory()) {
+            count += getFileCount(itemPath);
+          } else {
+            count++;
+          }
+        }
+        
+        return count;
+      };
+      
+      // Add file count to project data
+      try {
+        projectData.fileCount = getFileCount(projectDir);
+      } catch (error) {
+        console.error(`Error counting files in project ${projectId}:`, error);
+      }
+      
+      return res.json(projectData);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      console.error('Error loading local project:', error);
+      throw new ApiError(`Error loading project: ${error.message}`, 500);
+    }
+  } else {
+    // Get project from Supabase
     const { data, error } = await supabase
       .from('projects')
       .select('*')
       .eq('id', projectId)
       .single();
 
-  if (error) {
-    throw new ApiError(`Failed to fetch project: ${error.message}`, 500);
-  }
-  
+    if (error) {
+      throw new ApiError(`Failed to fetch project: ${error.message}`, 500);
+    }
+    
     if (!data) {
-    throw new ApiError('Project not found', 404);
+      throw new ApiError('Project not found', 404);
     }
 
     res.json(data);
+  }
 });
 
 // Update project

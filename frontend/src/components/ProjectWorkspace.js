@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
@@ -18,12 +18,13 @@ import {
   ListItemButton,
   Paper,
   Typography,
-  Tooltip
+  Tooltip,
+  LinearProgress
 } from '@mui/material';
 import {
   Upload as UploadIcon,
   Folder as FolderIcon,
-  InsertDriveFile as FileIcon,
+  Description as FileIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
   ArrowBack as BackIcon,
@@ -31,7 +32,9 @@ import {
   Analytics as AnalyticsIcon,
   Code as CodeIcon,
   AccountTree as TreeIcon,
-  BubbleChart as GraphIcon
+  BubbleChart as GraphIcon,
+  CloudUpload as CloudUploadIcon,
+  AutoFixHigh as AutoFixHighIcon
 } from '@mui/icons-material';
 import { projectAPI } from '../utils/api';
 
@@ -50,6 +53,9 @@ function ProjectWorkspace() {
   const [fileLoading, setFileLoading] = useState(false);
   const [vectorizing, setVectorizing] = useState(false);
   const [vectorizationStatus, setVectorizationStatus] = useState(null);
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
   
   const fetchProject = useCallback(async () => {
     try {
@@ -130,6 +136,29 @@ function ProjectWorkspace() {
     }
   };
 
+  const handleUploadFiles = async (e) => {
+    const selectedFiles = e.target.files;
+    if (!selectedFiles || selectedFiles.length === 0) return;
+    
+    setUploading(true);
+    
+    try {
+      // Upload the files to the current project
+      await projectAPI.uploadFiles(projectId, selectedFiles);
+      
+      // Refresh the file list
+      fetchFiles();
+      
+      // Show success message if needed
+      console.log(`Successfully uploaded ${selectedFiles.length} files`);
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      setError('Failed to upload files. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const renderFileTree = (files) => {
     if (!files || !Array.isArray(files) || files.length === 0) {
       return (
@@ -196,13 +225,20 @@ function ProjectWorkspace() {
           </Typography>
         </Box>
         <Box>
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            onChange={handleUploadFiles}
+          />
           <Button
             variant="outlined"
-            startIcon={<UploadIcon />}
-            onClick={() => navigate(`/projects/${projectId}/upload`)}
-            sx={{ mr: 1 }}
+            startIcon={<CloudUploadIcon />}
+            onClick={() => fileInputRef.current.click()}
+            disabled={uploading}
           >
-            Upload Files
+            {uploading ? 'Uploading...' : 'Upload Files'}
           </Button>
           <Button
             variant="contained"

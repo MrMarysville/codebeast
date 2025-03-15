@@ -59,7 +59,7 @@ export function generateMetadata() {
 }
 
 // Update to match the actual backend server port (5001)
-const BACKEND_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const BACKEND_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 // Directories to exclude from upload
 // eslint-disable-next-line no-unused-vars
@@ -191,7 +191,6 @@ function ProjectUploader({ onUpload }) {
   const [projectId2, setProjectId] = useState(null);
   
   // State for excluded files statistics
-  // eslint-disable-next-line no-unused-vars
   const [excludedStats, setExcludedStats] = useState({
     total: 0,
     byDirectory: {},
@@ -199,7 +198,6 @@ function ProjectUploader({ onUpload }) {
   });
   
   // Flag to control whether exclusions are enabled
-  // eslint-disable-next-line no-unused-vars
   const [enableExclusions, setEnableExclusions] = useState(true);
   
   // Flag to control whether to save locally or to Supabase
@@ -224,14 +222,30 @@ function ProjectUploader({ onUpload }) {
 
   useEffect(() => {
     if (projectId) {
+      // If projectId is already in the URL, skip to the file upload step
+      setStep(2);
       fetchProject();
     }
   }, [projectId, fetchProject]);
 
-  // eslint-disable-next-line no-unused-vars
-  const handleFileSelect = (event) => {
-    const files = Array.from(event.target.files);
-    setSelectedFiles(files);
+  // Handle file selection with automatic filtering
+  const handleFileChange = (files) => {
+    if (!files || files.length === 0) {
+      setSelectedFiles([]);
+      setError(null);
+      return;
+    }
+    
+    const fileArray = Array.from(files || []);
+    setSelectedFiles(fileArray);
+    
+    // If it's a folder upload, show the folder name
+    if (uploadType === 'folder' && fileArray.length > 0 && fileArray[0].webkitRelativePath) {
+      const folderPath = fileArray[0].webkitRelativePath.split('/')[0];
+      toast.info(`Selected folder: ${folderPath} (${fileArray.length} files)`);
+    }
+    
+    setError(null);
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -255,37 +269,88 @@ function ProjectUploader({ onUpload }) {
     try {
       setUploading(true);
       setError(null);
+      setUploadProgress(0);
       
-      // Create FormData object to send files
-      const formData = new FormData();
-      selectedFiles.forEach(file => {
-        formData.append('files', file);
-      });
+      // Show initial toast
+      const uploadType = selectedFiles[0].webkitRelativePath ? 'folder' : 'files';
+      const uploadCount = selectedFiles.length;
+      toast.info(`Starting upload of ${uploadCount} ${uploadType === 'folder' ? 'files from folder' : 'files'}...`);
       
-      // Set up headers
-      const headers = {
-        'Content-Type': 'multipart/form-data',
-      };
-      
-      // Add auth token if available
-      if (currentUser?.token) {
-        headers['Authorization'] = `Bearer ${currentUser.token}`;
+      // Filter out excluded files if exclusions are enabled
+      let filesToUpload = selectedFiles;
+      if (enableExclusions) {
+        const excludedDirs = EXCLUDED_DIRECTORIES;
+        const excludedExts = EXCLUDED_EXTENSIONS;
+        
+        const excluded = {
+          total: 0,
+          byDirectory: {},
+          byExtension: 0
+        };
+        
+        filesToUpload = selectedFiles.filter(file => {
+          // Check if file is in an excluded directory
+          const filePath = file.webkitRelativePath || file.name;
+          const isExcludedDir = excludedDirs.some(dir => 
+            filePath.includes(`/${dir}/`) || filePath.startsWith(`${dir}/`)
+          );
+          
+          if (isExcludedDir) {
+            excluded.total++;
+            const dirName = excludedDirs.find(dir => 
+              filePath.includes(`/${dir}/`) || filePath.startsWith(`${dir}/`)
+            );
+            excluded.byDirectory[dirName] = (excluded.byDirectory[dirName] || 0) + 1;
+            return false;
+          }
+          
+          // Check if file has an excluded extension
+          const isExcludedExt = excludedExts.some(ext => 
+            filePath.toLowerCase().endsWith(ext)
+          );
+          
+          if (isExcludedExt) {
+            excluded.total++;
+            excluded.byExtension++;
+            return false;
+          }
+          
+          return true;
+        });
+        
+        setExcludedStats(excluded);
+        
+        // Show toast with exclusion stats
+        if (excluded.total > 0) {
+          toast.info(`Excluded ${excluded.total} files based on your settings. Uploading ${filesToUpload.length} files.`);
+        }
       }
       
-      // Upload files
-      const response = await fileAPI.uploadFile(projectId, formData, extractPath);
+      // Add storage option to the request
+      const options = {
+        saveLocally,
+        projectId
+      };
       
-      toast.success('Files uploaded successfully');
+      // Upload files using the projectAPI with progress tracking
+      await projectAPI.uploadFiles(projectId, filesToUpload, (progress) => {
+        setUploadProgress(progress);
+        // Update toast on significant progress milestones
+        if (progress % 25 === 0) {
+          toast.info(`Upload progress: ${progress}%`);
+        }
+      }, options);
       
-      // Redirect to project
-      navigate(`/projects/${projectId}`);
+      toast.success(`Successfully uploaded ${filesToUpload.length} files!`);
       
-      return response.data;
-    } catch (error) {
-      console.error('Error uploading files:', error);
-      setError(error.message || 'Failed to upload files');
+      // Redirect to project page after a short delay
+      setTimeout(() => {
+        navigate(`/projects/${projectId}`);
+      }, 1500);
+    } catch (err) {
+      console.error('Error uploading files:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to upload files');
       toast.error('Failed to upload files');
-      return null;
     } finally {
       setUploading(false);
     }
@@ -301,35 +366,25 @@ function ProjectUploader({ onUpload }) {
     try {
       setUploading(true);
       setError(null);
+      setUploadProgress(0);
       
-      // Create FormData object to send ZIP file
+      // Create FormData object for the ZIP file
       const formData = new FormData();
-      formData.append('zipFile', selectedZipFile);
+      formData.append('file', selectedZipFile);
       
-      // Set up headers
-      const headers = {
-        'Content-Type': 'multipart/form-data',
-      };
-      
-      // Add auth token if available
-      if (currentUser?.token) {
-        headers['Authorization'] = `Bearer ${currentUser.token}`;
-      }
-      
-      // Upload ZIP file
-      const response = await fileAPI.uploadZip(projectId, formData, extractPath);
+      // Upload ZIP file with progress tracking
+      await fileAPI.uploadZip(projectId, formData, extractPath, (progress) => {
+        setUploadProgress(progress);
+      });
       
       toast.success('ZIP file uploaded and extracted successfully');
       
-      // Redirect to project
+      // Redirect to project page
       navigate(`/projects/${projectId}`);
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error uploading ZIP file:', error);
-      setError(error.message || 'Failed to upload ZIP file');
+    } catch (err) {
+      console.error('Error uploading ZIP file:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to upload ZIP file');
       toast.error('Failed to upload ZIP file');
-      return null;
     } finally {
       setUploading(false);
     }
@@ -352,37 +407,19 @@ function ProjectUploader({ onUpload }) {
   // Function to fetch vector data for download - defined before it's used in useEffect
   const fetchVectorData = useCallback(async (projectId) => {
     try {
-      const headers = {};
-      if (currentUser?.token) {
-        headers['Authorization'] = `Bearer ${currentUser.token}`;
-      }
-      
-      const response = await axios.get(
-        `${BACKEND_URL}/projects/${projectId}/vectors/data?saveLocally=true`,
-        { headers }
-      );
-      
+      const response = await projectAPI.getVectorData(projectId);
       return response.data;
     } catch (err) {
       console.error('Error fetching vector data:', err);
       setError('Failed to fetch vector data for download');
       return null;
     }
-  }, [currentUser]);
+  }, []);
   
   // Define fetchVectorizationStatus with useCallback before using it
   const fetchVectorizationStatus = useCallback(async (projectId) => {
-    const headers = {};
-    if (currentUser?.token) {
-      headers['Authorization'] = `Bearer ${currentUser.token}`;
-    }
-    
     try {
-      const response = await axios.get(
-        `${BACKEND_URL}/projects/${projectId}/vectors/status?saveLocally=true`,
-        { headers }
-      );
-      
+      const response = await projectAPI.getVectorizationStatus(projectId);
       return response.data;
     } catch (err) {
       console.error(`Error fetching vectorization status for project ${projectId}:`, err);
@@ -395,7 +432,7 @@ function ProjectUploader({ onUpload }) {
         error: err.message
       };
     }
-  }, [currentUser]);
+  }, []);
   
   // Poll for vectorization status updates
   const checkVectorizationStatus = useCallback(async (projectId) => {
@@ -421,12 +458,6 @@ function ProjectUploader({ onUpload }) {
     }
   }, [fetchVectorizationStatus]);
   
-  // Handle file selection with automatic filtering
-  const handleFileChange = (files) => {
-    setFiles(Array.from(files || []));
-    setError(null);
-  };
-  
   // eslint-disable-next-line no-unused-vars
   const handleNextStep = (e) => {
     e.preventDefault();
@@ -438,11 +469,21 @@ function ProjectUploader({ onUpload }) {
     setStep(2);
   };
   
-  // Toggle upload type between files and folder
+  // Toggle between file and folder upload
   const toggleUploadType = (type) => {
+    if (type === uploadType) return; // Don't do anything if the type is the same
+    
     setUploadType(type);
-    setFiles([]);
-    setUploadProgress(0); // Reset progress when upload type changes
+    setSelectedFiles([]);
+    setSelectedZipFile(null);
+    setError(null);
+    
+    // Show a toast message to guide the user
+    if (type === 'folder') {
+      toast.info('Select a folder to upload. All files in the folder will be processed.');
+    } else {
+      toast.info('Select individual files to upload.');
+    }
   };
   
   // Start vectorization process for the uploaded project
@@ -664,8 +705,8 @@ function ProjectUploader({ onUpload }) {
       setError(null);
       setUploading(true);
       
-      // Create project
-      const response = await axios.post(`${BACKEND_URL}/projects`, {
+      // Create project with the correct API endpoint
+      const response = await axios.post(`${BACKEND_URL}/api/projects`, {
         name,
         description,
         user_id: currentUser?.id || 'anonymous',
@@ -682,7 +723,7 @@ function ProjectUploader({ onUpload }) {
     }
   }, [name, description, currentUser?.id, saveLocally]);
 
-  // Render file select UI based on upload type
+  // Render file selector
   const renderFileSelector = () => {
     // Determine allowed file extensions
     const allowedExtensions = [
@@ -725,6 +766,50 @@ function ProjectUploader({ onUpload }) {
           required
           showFileList={true}
         />
+        
+        <div className="file-exclusion-options">
+          <div className="exclusion-toggle">
+            <input
+              type="checkbox"
+              id="enable-exclusions"
+              checked={enableExclusions}
+              onChange={(e) => setEnableExclusions(e.target.checked)}
+            />
+            <label htmlFor="enable-exclusions">
+              Exclude common non-essential files (node_modules, .git, etc.)
+            </label>
+          </div>
+          
+          {enableExclusions && (
+            <div className="exclusion-details">
+              <h4>Files that will be excluded:</h4>
+              <div className="exclusion-lists">
+                <div className="excluded-directories">
+                  <h5>Directories:</h5>
+                  <ul>
+                    {EXCLUDED_DIRECTORIES.map((dir, index) => (
+                      <li key={index}>{dir}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="excluded-extensions">
+                  <h5>File Extensions:</h5>
+                  <ul>
+                    {EXCLUDED_EXTENSIONS.map((ext, index) => (
+                      <li key={index}>{ext}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {selectedFiles.length > 0 && (
+            <div className="selected-files-info">
+              <p>{selectedFiles.length} files selected</p>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -822,7 +907,25 @@ function ProjectUploader({ onUpload }) {
         
         <p className="upload-info">
           This might take a while depending on the size of your project.
+          {uploadProgress > 0 && uploadProgress < 100 && (
+            <span> Please don&apos;t close this window until the upload is complete.</span>
+          )}
+          {uploadProgress === 100 && (
+            <span> Upload complete! Processing files...</span>
+          )}
         </p>
+        
+        {uploadProgress === 100 && (
+          <div className="upload-complete-actions">
+            <Button 
+              variant="primary" 
+              onClick={() => navigate(`/projects/${projectId}`)}
+              icon={<FiCheck />}
+            >
+              Go to Project
+            </Button>
+          </div>
+        )}
       </div>
     );
   };
@@ -908,6 +1011,41 @@ function ProjectUploader({ onUpload }) {
           <h2>Upload Project Files</h2>
           {renderFileSelector()}
           
+          <div className="form-group">
+            <label htmlFor="storage-options">Storage Options</label>
+            <div className="storage-options" id="storage-options">
+              <div className="storage-option">
+                <input
+                  type="radio"
+                  id="storage-local"
+                  name="storage"
+                  value="local"
+                  checked={saveLocally}
+                  onChange={() => setSaveLocally(true)}
+                />
+                <label htmlFor="storage-local">
+                  <strong>Local Storage</strong>
+                  <p>Files are processed locally and not stored on external servers</p>
+                </label>
+              </div>
+              <div className="storage-option disabled">
+                <input
+                  type="radio"
+                  id="storage-cloud"
+                  name="storage"
+                  value="cloud"
+                  disabled
+                  checked={!saveLocally}
+                  onChange={() => setSaveLocally(false)}
+                />
+                <label htmlFor="storage-cloud">
+                  <strong>Cloud Storage</strong>
+                  <p>Store in cloud for collaboration (coming soon)</p>
+                </label>
+              </div>
+            </div>
+          </div>
+          
           <div className="upload-actions">
             <Button 
               variant="secondary" 
@@ -917,12 +1055,12 @@ function ProjectUploader({ onUpload }) {
             </Button>
             <Button 
               variant="primary" 
-              onClick={handleSubmit}
-              disabled={!files.length}
+              onClick={handleUploadFiles}
+              disabled={!selectedFiles.length}
               loading={uploading}
               icon={<FiUpload />}
             >
-              Upload Files
+              Upload {selectedFiles.length} Files
             </Button>
           </div>
         </>

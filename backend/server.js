@@ -13,10 +13,12 @@ const multer = require('multer');
 const supabase = require('./utils/supabase');
 const { protect, conditionalProtect } = require('./middleware/authMiddleware');
 
-// Import custom middleware
+// Import custom middleware and utilities
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const getLoggingMiddleware = require('./middleware/loggingMiddleware');
 const { apiLimiter, authLimiter, uploadLimiter, vectorizationLimiter } = require('./middleware/rateLimitMiddleware');
+const logger = require('./utils/logger'); // Import logger early
+const portManager = require('./utils/portManager');
 
 // Load environment variables with explicit path
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -48,6 +50,62 @@ app.set('trust proxy', 1);
 // Ensure uploads directory exists
 const uploadsDir = process.env.UPLOADS_DIR || './uploads';
 fs.ensureDirSync(uploadsDir);
+
+// Create a projects.json file in the uploads directory if it doesn't exist
+try {
+  const projectsFile = path.join(uploadsDir, 'projects.json');
+  if (!fs.existsSync(projectsFile)) {
+    logger.info('Creating initial projects.json file');
+    fs.writeFileSync(projectsFile, JSON.stringify({ projects: [] }, null, 2));
+  }
+  
+  // Create example project folder if no projects exist
+  const projectsData = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+  if (Array.isArray(projectsData.projects) && projectsData.projects.length === 0) {
+    logger.info('No projects found, creating example project');
+    
+    // Create example project folder
+    const exampleProjectId = 'example-project';
+    const exampleProjectDir = path.join(uploadsDir, exampleProjectId);
+    fs.ensureDirSync(exampleProjectDir);
+    
+    // Create a sample file
+    fs.writeFileSync(
+      path.join(exampleProjectDir, 'sample.js'),
+      '// Example JavaScript file\nconsole.log("Hello, world!");\n'
+    );
+    
+    // Create a sample index.html file
+    fs.writeFileSync(
+      path.join(exampleProjectDir, 'index.html'),
+      '<!DOCTYPE html>\n<html>\n<head>\n  <title>Example Project</title>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n</body>\n</html>\n'
+    );
+    
+    // Create a README.md file
+    fs.writeFileSync(
+      path.join(exampleProjectDir, 'README.md'),
+      '# Example Project\n\nThis is an automatically generated example project.\n'
+    );
+    
+    // Add the example project to projects.json
+    projectsData.projects.push({
+      id: exampleProjectId,
+      name: 'Example Project',
+      description: 'Automatically generated example project',
+      createdAt: new Date().toISOString(),
+      files: [
+        'sample.js',
+        'index.html',
+        'README.md'
+      ]
+    });
+    
+    fs.writeFileSync(projectsFile, JSON.stringify(projectsData, null, 2));
+    logger.info('Example project created successfully');
+  }
+} catch (error) {
+  logger.error(`Error initializing uploads directory: ${error.message}`);
+}
 
 // Ensure logs directory exists
 const logsDir = path.join(__dirname, 'logs');
@@ -86,13 +144,13 @@ app.use((req, res, next) => {
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
-const projectRoutes = require('./routes/projectRoutes');  // Keep legacy projectRoutes for now
 const fileRoutes = require('./routes/fileRoutes');
 const featureRoutes = require('./routes/featureRoutes');
 const vectorRoutes = require('./routes/vectorRoutes');
 const componentRoutes = require('./routes/componentRoutes');
-const projectRouter = require('./routes/project.routes');  // Use new project.routes.js
-const fileRouter = require('./routes/file.routes');  // Use new file.routes.js
+const projectRouter = require('./routes/project.routes');  // Keep only this project routes import
+const fileRouter = require('./routes/file.routes');
+const vectorizeRouter = require('./routes/vectorize.routes'); // Import vectorization routes
 const projectController = require('./controllers/project.controller');
 
 // ====== SYSTEM ROUTES ======
@@ -114,8 +172,9 @@ app.get('/api/system/status', (req, res) => {
 });
 
 // Register the new project and file routes
-app.use('/api/v2/project', projectRouter);
-app.use('/api/v2/file', fileRouter);
+app.use('/api/projects', conditionalProtect, projectRouter);
+app.use('/api/files', conditionalProtect, fileRouter);
+app.use('/api/vectorize', conditionalProtect, vectorizeRouter); // Register vectorization routes
 
 // ====== DIRECT PROJECT ACCESS ROUTES (NO /api PREFIX) ======
 // These routes allow for direct access to projects without authentication
@@ -293,8 +352,6 @@ app.post('/api/projects/:projectId/vectorize', conditionalProtect, (req, res, ne
 
 // Register routes with authentication
 app.use('/api/auth', authRoutes);
-app.use('/api/projects', protect, projectRoutes);
-app.use('/api/files', protect, fileRoutes);
 app.use('/api/features', protect, featureRoutes);
 app.use('/api/vectors', protect, vectorRoutes);
 app.use('/api/projects/:projectId/components', protect, componentRoutes);
@@ -338,85 +395,133 @@ console.log = function() {
 // Import the improved Python checker
 const { checkPython, isPythonAvailable } = require('./utils/pythonChecker');
 
-// Start the server with error handling
-const PORT = process.env.PORT || 5001;
+// Start the server
+let PORT = process.env.PORT || 5001;
 
-// Function to check if a port is available
-function isPortAvailable(port) {
-  return new Promise((resolve, reject) => {
-    const server = require('net').createServer();
-    
-    server.once('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        // Port is not available
-        resolve(false);
-      } else {
-        reject(err);
-      }
-    });
-    
-    server.once('listening', () => {
-      // Port is available, close the server
-      server.close(() => {
-        resolve(true);
-      });
-    });
-    
-    server.listen(port);
-  });
-}
-
-// Try to start the server 
-(async function startServer() {
+// Enhanced server startup function
+async function startServer() {
   try {
     // Check if the port is available
-    const portAvailable = await isPortAvailable(PORT);
+    const portStatus = await portManager.ensurePortAvailable(PORT, {
+      tryToFree: true,
+      forceKill: true, // Force kill any processes using the port
+      timeout: 5000, // Wait up to 5 seconds for the port to be freed
+      returnAny: true,
+      fallbackStartPort: 5500
+    });
     
-    if (!portAvailable) {
-      console.log(`Port ${PORT} is already in use. Attempting to close existing connections...`);
-      
-      // Try to kill the process using the port
+    if (!portStatus.available) {
+      logger.error(`Port ${PORT} is still in use. Please restart manually with a different port.`);
+      // Take more aggressive action to free the port
       try {
-        const { execSync } = require('child_process');
+        logger.info(`Attempting to forcefully free port ${PORT}...`);
+        // On Windows, we can use netstat and taskkill
         if (process.platform === 'win32') {
-          execSync(`npx kill-port ${PORT}`);
+          const { execSync } = require('child_process');
+          // Find the PID using the port
+          const findPidCommand = `netstat -ano | findstr :${PORT}`;
+          const result = execSync(findPidCommand).toString();
+          // Extract the PID from the result
+          const pidMatch = result.match(/LISTENING\s+(\d+)/);
+          if (pidMatch && pidMatch[1]) {
+            const pid = pidMatch[1];
+            logger.info(`Found process ${pid} using port ${PORT}, attempting to kill...`);
+            try {
+              execSync(`taskkill /F /PID ${pid}`);
+              logger.info(`Successfully killed process ${pid}`);
+            } catch (killError) {
+              logger.error(`Failed to kill process: ${killError.message}`);
+            }
+          }
         } else {
-          execSync(`lsof -ti:${PORT} | xargs kill -9`);
+          // Unix-like systems can use lsof and kill
+          const { execSync } = require('child_process');
+          const findPidCommand = `lsof -t -i:${PORT}`;
+          const pid = execSync(findPidCommand).toString().trim();
+          if (pid) {
+            logger.info(`Found process ${pid} using port ${PORT}, attempting to kill...`);
+            try {
+              execSync(`kill -9 ${pid}`);
+              logger.info(`Successfully killed process ${pid}`);
+            } catch (killError) {
+              logger.error(`Failed to kill process: ${killError.message}`);
+            }
+          }
         }
-        
-        console.log(`Successfully freed port ${PORT}`);
-      } catch (killError) {
-        console.error(`Failed to free port ${PORT}:`, killError.message);
-        console.log(`Please manually close the application using port ${PORT} and try again.`);
-        process.exit(1);
+      } catch (e) {
+        logger.error(`Error attempting to forcefully free port: ${e.message}`);
       }
+      
+      // Try again after forceful kill
+      const retryStatus = await portManager.isPortInUse(PORT);
+      if (retryStatus) {
+        logger.error(`Port ${PORT} is still in use after forceful kill attempt. Using fallback port 5500.`);
+        PORT = 5500;
+      }
+    } else {
+      PORT = portStatus.port;
     }
     
-    // Start the server
-    httpServer.listen(PORT, async () => {
-      console.log(`[${new Date().toISOString()}] Server running on port ${PORT}`);
+    // Use the port from the portStatus (original or fallback)
+    const server = httpServer.listen(PORT, () => {
+      logger.info(`[${new Date().toISOString()}] Server running on port ${PORT}`);
       
-      // Check for Python availability
-      await checkPython();
-      
-      // Log code executor URL
-      console.log(`Using code executor at: http://localhost:${PORT}`);
-    });
-    
-    // Handle server errors
-    httpServer.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${PORT} is still in use. Please restart manually with a different port.`);
-      } else {
-        console.error('Server error:', err);
+      // Check for Python
+      try {
+        const pythonVersion = require('./utils/pythonRunner').getPythonVersion();
+        if (pythonVersion) {
+          logger.info(`Python detected: ${pythonVersion}`);
+        } else {
+          logger.warn('Python not detected. Using JavaScript fallbacks for vector operations.');
+        }
+      } catch (err) {
+        logger.warn('Error detecting Python. Using JavaScript fallbacks for vector operations.');
+        logger.error(err);
       }
-      process.exit(1);
+      
+      logger.info(`Using code executor at: http://localhost:${PORT}`);
     });
     
-  } catch (err) {
-    console.error('Error starting server:', err);
+    // Set up graceful shutdown
+    process.on('SIGINT', () => gracefulShutdown(server, 'SIGINT'));
+    process.on('SIGTERM', () => gracefulShutdown(server, 'SIGTERM'));
+    
+    return server;
+  } catch (error) {
+    logger.error(`Failed to start server: ${error.message}`);
     process.exit(1);
   }
-})();
+}
+
+// Graceful shutdown function
+function gracefulShutdown(server, signal) {
+  logger.info(`${signal} received. Shutting down gracefully...`);
+  
+  // Close HTTP server
+  server.close(() => {
+    logger.info('HTTP server closed.');
+    
+    // Close Socket.io connections
+    io.close(() => {
+      logger.info('Socket.io connections closed.');
+      
+      // Clean up any remaining resources
+      logger.info('All connections closed. Exiting process.');
+      process.exit(0);
+    });
+  });
+  
+  // Force exit after timeout
+  setTimeout(() => {
+    logger.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+}
+
+// Start the server and handle any startup errors
+startServer().catch(error => {
+  logger.error(`Server failed to start: ${error.message}`);
+  process.exit(1);
+});
 
 module.exports = app;
